@@ -1,0 +1,150 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+*/
+import { BuildingConfig, BuildingType } from './types';
+
+// Map Settings
+export const GRID_SIZE = 60;
+
+// Game Settings
+export const TICK_RATE_MS = 2000; // Game loop updates every 2 seconds
+export const INITIAL_MONEY = 1000;
+
+export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
+  [BuildingType.None]: {
+    type: BuildingType.None,
+    cost: 0,
+    name: 'Bulldoze',
+    description: 'Clear a tile',
+    color: '#ef4444', // Used for UI
+    popGen: 0,
+    incomeGen: 0,
+  },
+  [BuildingType.Road]: {
+    type: BuildingType.Road,
+    cost: 10,
+    name: 'Road',
+    description: 'Connects buildings.',
+    color: '#374151', // gray-700
+    popGen: 0,
+    incomeGen: 0,
+  },
+  [BuildingType.Residential]: {
+    type: BuildingType.Residential,
+    cost: 200,
+    name: 'House',
+    description: 'Medium Density (Cap: 10)',
+    color: '#22c55e', // green-500
+    popGen: 10,
+    incomeGen: 0,
+  },
+  [BuildingType.Commercial]: {
+    type: BuildingType.Commercial,
+    cost: 200,
+    name: 'Shop',
+    description: '+$15/day',
+    color: '#60a5fa', // blue-400
+    popGen: 0,
+    incomeGen: 15,
+  },
+  [BuildingType.Industrial]: {
+    type: BuildingType.Industrial,
+    cost: 400,
+    name: 'Factory',
+    description: '+$40/day',
+    color: '#facc15', // yellow-400
+    popGen: 0,
+    incomeGen: 40,
+  },
+  [BuildingType.Park]: {
+    type: BuildingType.Park,
+    cost: 50,
+    name: 'Park',
+    description: 'Looks nice.',
+    color: '#4ade80', // green-400
+    popGen: 1,
+    incomeGen: 0,
+  },
+  [BuildingType.School]: {
+    type: BuildingType.School,
+    cost: 500,
+    name: 'School',
+    description: 'Boosts Growth',
+    color: '#fbbf24', // amber-400
+    popGen: 0,
+    incomeGen: -10, // Upkeep
+  },
+  [BuildingType.Hospital]: {
+    type: BuildingType.Hospital,
+    cost: 1000,
+    name: 'Hospital',
+    description: 'Reduces Deaths',
+    color: '#f472b6', // pink-400
+    popGen: 0,
+    incomeGen: -20, // Upkeep
+  },
+  [BuildingType.Police]: {
+    type: BuildingType.Police,
+    cost: 400,
+    name: 'Police',
+    description: 'Safety',
+    color: '#1e40af', // blue-800
+    popGen: 0,
+    incomeGen: -10, // Upkeep
+  },
+  [BuildingType.FireStation]: {
+    type: BuildingType.FireStation,
+    cost: 450,
+    name: 'Fire Stn',
+    description: 'Reduces Fire Risk',
+    color: '#dc2626', // red-600
+    popGen: 0,
+    incomeGen: -15, // Upkeep
+  },
+  [BuildingType.GoldMine]: {
+    type: BuildingType.GoldMine,
+    cost: 1500,
+    name: 'Gold Mine',
+    description: '+$200/day. Risky?',
+    color: '#fbbf24', // amber-400
+    popGen: 0,
+    incomeGen: 200,
+  },
+  [BuildingType.Apartment]: {
+    type: BuildingType.Apartment,
+    cost: 100,
+    name: 'Flat',
+    description: 'Starter Home (Cap: 4)',
+    color: '#94a3b8', // slate-400
+    popGen: 4,
+    incomeGen: 0,
+  },
+  [BuildingType.Mansion]: {
+    type: BuildingType.Mansion,
+    cost: 1000,
+    name: 'Mansion',
+    description: 'Luxury Estate (Cap: 25)',
+    color: '#a855f7', // purple-500
+    popGen: 25,
+    incomeGen: 0,
+  },
+  [BuildingType.Water]: {
+    type: BuildingType.Water,
+    cost: 0,
+    name: 'Water',
+    description: 'Structure Required',
+    color: '#3b82f6', // blue-500
+    popGen: 0,
+    incomeGen: 0,
+  },
+  [BuildingType.Bridge]: {
+    type: BuildingType.Bridge,
+    cost: 500,
+    name: 'Bridge',
+    description: 'Crosses Water',
+    color: '#78350f', // amber-900 (wood/stone)
+    popGen: 0,
+    incomeGen: 0,
+  },
+};
