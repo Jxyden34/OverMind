@@ -50,7 +50,7 @@ const callLocalAI = async (prompt: string, systemPrompt: string = "You are a hel
             logToFile(`Sending request to: ${API_URL}/chat/completions (Attempt ${i + 1})`);
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
 
             const response = await fetch(`${API_URL}/chat/completions`, {
                 method: 'POST',
@@ -202,6 +202,11 @@ export const generateGameAction = async (stats: CityStats, grid: Grid, recentFai
         day: stats.day,
         money: stats.money,
         population: stats.population,
+        demographics: stats.demographics, // Added for smart service scaling
+        currentGoal: stats.currentGoal, // Added so AI sees the active challenge
+        crimeRate: stats.crimeRate,
+        security: stats.security,
+        pollution: stats.pollutionLevel,
         buildings: buildingCounts,
         forbiddenTiles: recentFailures.length > 0 ? recentFailures.map(f => `[${f.x},${f.y}]`).join(', ') : "None",
         waterLocations: waterTiles.length > 20 ? "MANY (Islands)" : waterTiles.join(', '),
@@ -213,7 +218,7 @@ export const generateGameAction = async (stats: CityStats, grid: Grid, recentFai
         .filter(([_, v]) => stats.money >= v.cost && v.type !== BuildingType.None)
         .map(([k, v]) => `- ${v.name} ($${v.cost}) -> BUILD ${k} <X> <Y>`);
 
-    const lowMoneyWarning = stats.money < 100 ? "CRITICAL: MONEY LOW (<100). YOU MUST BUILD COMMERCIAL OR INDUSTRIAL TO SURVIVE. DO NOT BUILD RESIDENTIAL OR PARKS." : "";
+    const lowMoneyWarning = stats.money < 2000 ? "CRITICAL: MONEY LOW (<2000). YOU MUST BUILD COMMERCIAL OR GOLD MINES TO SURVIVE. DO NOT BUILD RESIDENTIAL OR PARKS." : "";
 
     const prompt = `
 You are partially playing a city builder game. You must make a MOVE.
@@ -221,7 +226,6 @@ Current Stats: ${JSON.stringify(context)}
 
 Available Moves:
 ${affordableBuildings.length > 0 ? affordableBuildings.join('\n') : "- NONE (Insufficient Funds)"}
-- DEMOLISH <X> <Y> (Cost: $5)
 - WAIT (Save money)
 
 ${lowMoneyWarning}
@@ -229,16 +233,32 @@ ${lowMoneyWarning}
 Rules:
 - You cannot spend more money than you have.
 - You can ONLY build buildings listed in 'Available Moves'.
+- **CRITICAL**: DO NOT BUILD ON OCCUPIED TILES. Only build on EMPTY land (None).
+- **CRITICAL**: DO NOT DEMOLISH ANYTHING. You are not allowed to destroy buildings.
 - FORBIDDEN: Do not build on WATER tiles. The map has water. avoiding ${waterTiles.length} water tiles is priority.
 - FORBIDDEN: Do not try to build on tiles listed in 'forbiddenTiles' (recent failures).
-- STRATEGY: Residential costs money. Commercial/Industrial makes money. Balance them.
-- Connect buildings to roads if possible.
+- STRATEGY:
+  1. **CHALLENGE**: If 'currentGoal' is active, PRIORITIZE it! (e.g. if Goal is 'Build 5 Parks', build Park).
+  2. **CRIME**: If CrimeRate > Security, you MUST build **Police**. Law and order is essential.
+  3. **POLLUTION**: If Pollution > 15, you MUST build a **Park** to clean the air and improve happiness.
+  4. **HAPPINESS**: If Happiness < 70, you MUST build **Park** or **Commercial** (Entertainment). Unhappy citizens leave!
+  3. **FIRE SAFETY**: If you have > 10 buildings, ensure there is at least 1 **FireStation**.
+  4. **GREED**: If Safety > 90 and Money > $3000, build a **Casino**! It prints money (but lowers safety).
+  5. **ZONING**: Do NOT build **Industrial** next to **Residential** (Pollution). Keep them separate!
+  6. **PEOPLE FIRST**: If (Jobs > Population), build **Residential** or **Apartment**.
+  7. **SOLVENCY**: 
+     - If Money > $1500 and Trending Down: Build **GoldMine**.
+     - If Money < $500: Build **Commercial** (Cheap income).
+  8. **DEMOGRAPHICS**: 
+     - Children > 2 -> **School**.
+     - Seniors > 5 -> **Hospital**.
+  9. **INFRASTRUCTURE**: Every 3 buildings, build a **Road** to connect them.
 
 Respond with valid JSON ONLY. Do not explain anything outside the JSON.
 Format:
 {
   "action": "BUILD" | "DEMOLISH" | "WAIT",
-  "buildingType": "Residential" | "Commercial" | "Industrial" | "Road" | "Park" | null,
+  "buildingType": "Residential" | "Commercial" | "Industrial" | "Road" | "Park" | "School" | "Hospital" | "GoldMine" | "FireStation" | "Casino" | null,
   "x": number,
   "y": number,
   "reasoning": "A short news headline explaining this move (max 10 words). E.g. 'Mayor approves new housing project'"
@@ -365,10 +385,15 @@ export const decideEvent = async (event: AIEventResponse, stats: CityStats): Pro
     Choice A: ${event.choices.yesLabel} -> ${event.choices.yesEffect}
     Choice B: ${event.choices.noLabel} -> ${event.choices.noEffect}
 
-    Based on your personality (Chaotic Good AI), pick YES (Choice A) or NO (Choice B).
+    **CRITICAL INSTRUCTION**: Act as a Responsible Mayor. 
+    - Analyze the effects. 
+    - If Choice A is dangerous, too expensive, or hurts the population, choose NO (Choice B).
+    - If Choice A is purely beneficial, choose YES.
+    - Do NOT choose YES just to be "fun". Prioritize the survival and happiness of the town.
+
     Respond with VALID JSON ONLY: { "decision": "YES" | "NO", "reasoning": "short text" }`;
 
-    const content = await callLocalAI(prompt, "You are the AI Mayor. JSON only.");
+    const content = await callLocalAI(prompt, "You are a Responsible AI Mayor. JSON only.");
     if (!content) return 'NO';
 
     try {

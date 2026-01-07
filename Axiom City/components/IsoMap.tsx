@@ -82,37 +82,36 @@ const DayNightCycle = ({ day, neonMode, weather, activeDisaster }: { day: number
         directionalLightRef.current.position.set(10 + Math.random(), 20, 10 + Math.random());
       }
     }
-  }
 
     if (ambientLightRef.current) {
-    let ambIntensity = sin > 0 ? 0.6 : 0.2;
-    if (weather === WeatherType.Rain || weather === WeatherType.Snow) ambIntensity -= 0.1;
+      let ambIntensity = sin > 0 ? 0.6 : 0.2;
+      if (weather === WeatherType.Rain || weather === WeatherType.Snow) ambIntensity -= 0.1;
 
-    // Solar Flare Ambient
-    if (activeDisaster?.type === DisasterType.SolarFlare) ambIntensity = 1.0;
+      // Solar Flare Ambient
+      if (activeDisaster?.type === DisasterType.SolarFlare) ambIntensity = 1.0;
 
-    ambientLightRef.current.intensity = neonMode ? 0.3 : ambIntensity;
-  }
-});
+      ambientLightRef.current.intensity = neonMode ? 0.3 : ambIntensity;
+    }
+  });
 
-return (
-  <>
-    <ambientLight ref={ambientLightRef} intensity={neonMode ? 0.3 : 0.5} color={neonMode ? "#2e1065" : "#cceeff"} />
-    <directionalLight
-      ref={directionalLightRef}
-      castShadow
-      position={[15, 20, 10]}
-      intensity={2}
-      color="#fffbeb"
-      shadow-mapSize={[1024, 1024]}
-      shadow-camera-left={-15} shadow-camera-right={15}
-      shadow-camera-top={15} shadow-camera-bottom={-15}
-      shadow-bias={-0.0005}
-    />
-    {(weather === WeatherType.Fog || weather === WeatherType.Rain) && <fog attach="fog" args={['#94a3b8', 5, 60]} />}
-    {weather === WeatherType.Snow && <fog attach="fog" args={['#e2e8f0', 10, 80]} />}
-  </>
-);
+  return (
+    <>
+      <ambientLight ref={ambientLightRef} intensity={neonMode ? 0.3 : 0.5} color={neonMode ? "#2e1065" : "#cceeff"} />
+      <directionalLight
+        ref={directionalLightRef}
+        castShadow
+        position={[15, 20, 10]}
+        intensity={2}
+        color="#fffbeb"
+        shadow-mapSize={[1024, 1024]}
+        shadow-camera-left={-15} shadow-camera-right={15}
+        shadow-camera-top={15} shadow-camera-bottom={-15}
+        shadow-bias={-0.0005}
+      />
+      {(weather === WeatherType.Fog || weather === WeatherType.Rain) && <fog attach="fog" args={['#94a3b8', 5, 60]} />}
+      {weather === WeatherType.Snow && <fog attach="fog" args={['#e2e8f0', 10, 80]} />}
+    </>
+  );
 };
 
 // Shared Geometries
@@ -193,9 +192,10 @@ const ProceduralBuilding = React.memo(({ type, baseColor, x, y, opacity = 1, tra
 
   const commonProps = { castShadow: true, receiveShadow: true };
   const yOffset = -0.3;
+  const [wx, _, wz] = gridToWorld(x, y);
 
   return (
-    <group rotation={[0, rotation, 0]} position={[0, yOffset, 0]}>
+    <group rotation={[0, rotation, 0]} position={[wx, yOffset, wz]}>
       {(() => {
         switch (type) {
           case BuildingType.Residential:
@@ -341,6 +341,24 @@ const ProceduralBuilding = React.memo(({ type, baseColor, x, y, opacity = 1, tra
               </>
             );
 
+          case BuildingType.Casino:
+            return (
+              <>
+                {/* Main Building */}
+                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.4, 0]} scale={[0.9, 0.8, 0.9]} />
+                {/* Entrance Arch */}
+                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0, 0.6, 0.46]} scale={[0.6, 0.4, 0.05]} />
+                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[-0.2, 0.3, 0.46]} scale={[0.15, 0.2, 0.05]} />
+                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0.2, 0.3, 0.46]} scale={[0.15, 0.2, 0.05]} />
+                {/* Sign */}
+                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#fbbf24', emissive: '#fbbf24', emissiveIntensity: 1 })} geometry={boxGeo} position={[0, 0.9, 0.46]} scale={[0.5, 0.1, 0.05]} />
+                {/* Roof Details */}
+                <mesh {...commonProps} material={roofMat} geometry={cylinderGeo} position={[0, 0.85, 0]} scale={[0.7, 0.1, 0.7]} />
+                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 0.8 })} geometry={sphereGeo} position={[0.3, 0.95, 0.3]} scale={0.1} />
+                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#3b82f6', emissive: '#3b82f6', emissiveIntensity: 0.8 })} geometry={sphereGeo} position={[-0.3, 0.95, -0.3]} scale={0.1} />
+              </>
+            );
+
           case BuildingType.Police:
             return (
               <>
@@ -461,7 +479,7 @@ const ProceduralBuilding = React.memo(({ type, baseColor, x, y, opacity = 1, tra
 
 const carColors = ['#ef4444', '#3b82f6', '#eab308', '#ffffff', '#1f2937', '#f97316'];
 
-const TrafficSystem = ({ grid }: { grid: Grid }) => {
+const TrafficSystem = ({ grid, crimeRate }: { grid: Grid, crimeRate: number }) => {
   const roadTiles = useMemo(() => {
     const roads: { x: number, y: number }[] = [];
     grid.forEach(row => row.forEach(tile => {
@@ -470,45 +488,75 @@ const TrafficSystem = ({ grid }: { grid: Grid }) => {
     return roads;
   }, [grid]);
 
-  const carCount = Math.min(roadTiles.length, 30);
+  // More crime = More chaos/cars (Police + Robbers)
+  const baseCarCount = Math.min(roadTiles.length, 30);
+  const crimeExtras = Math.min(20, Math.floor(crimeRate / 2)); // Add up to 20 extra units for crime
+  const carCount = baseCarCount + crimeExtras;
+
   const carsRef = useRef<THREE.InstancedMesh>(null);
   const carsState = useRef<Float32Array>(new Float32Array(0));
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
   useEffect(() => {
     if (roadTiles.length < 2) return;
-    carsState.current = new Float32Array(carCount * 6);
+    carsState.current = new Float32Array(carCount * 7); // Increased state size for TYPE (idx 6)
     const newColors = new Float32Array(carCount * 3);
 
     for (let i = 0; i < carCount; i++) {
       const startNode = roadTiles[Math.floor(Math.random() * roadTiles.length)];
-      carsState.current[i * 6 + 0] = startNode.x;
-      carsState.current[i * 6 + 1] = startNode.y;
-      carsState.current[i * 6 + 2] = startNode.x;
-      carsState.current[i * 6 + 3] = startNode.y;
-      carsState.current[i * 6 + 4] = 1;
-      carsState.current[i * 6 + 5] = getRandomRange(0.01, 0.03);
+      carsState.current[i * 7 + 0] = startNode.x;
+      carsState.current[i * 7 + 1] = startNode.y;
+      carsState.current[i * 7 + 2] = startNode.x;
+      carsState.current[i * 7 + 3] = startNode.y;
+      carsState.current[i * 7 + 4] = 1;
+      carsState.current[i * 7 + 5] = getRandomRange(0.01, 0.03);
 
-      const color = new THREE.Color(carColors[Math.floor(Math.random() * carColors.length)]);
+      // Car Type Logic
+      // 0 = Civ, 1 = Police, 2 = Robber
+      let type = 0;
+      let color = new THREE.Color(carColors[Math.floor(Math.random() * carColors.length)]);
+
+      // If we are in the "extra" range, force crime units
+      // Or just probability based on crime rate
+      if (i >= baseCarCount) {
+        if (Math.random() > 0.5) {
+          type = 1; // Police
+          color = new THREE.Color('#1e40af'); // Dark Blue
+          carsState.current[i * 7 + 5] = 0.04; // FAST
+        } else {
+          type = 2; // Robber
+          color = new THREE.Color('#000000'); // Black
+          carsState.current[i * 7 + 5] = 0.045; // FASTER
+        }
+      } else if (Math.random() < (crimeRate / 200)) {
+        // Random patrol even in normal pool
+        type = 1;
+        color = new THREE.Color('#3b82f6');
+      }
+
+      carsState.current[i * 7 + 6] = type;
+
       newColors[i * 3] = color.r; newColors[i * 3 + 1] = color.g; newColors[i * 3 + 2] = color.b;
     }
 
     if (carsRef.current) {
       carsRef.current.instanceColor = new THREE.InstancedBufferAttribute(newColors, 3);
     }
-  }, [roadTiles, carCount]);
+  }, [roadTiles, carCount, crimeRate]);
 
-  useFrame(() => {
+  useFrame((state) => {
     if (!carsRef.current || roadTiles.length < 2 || carsState.current.length === 0) return;
+    const time = state.clock.elapsedTime;
 
     for (let i = 0; i < carCount; i++) {
-      const idx = i * 6;
+      const idx = i * 7;
       let curX = carsState.current[idx];
       let curY = carsState.current[idx + 1];
       let tarX = carsState.current[idx + 2];
       let tarY = carsState.current[idx + 3];
       let progress = carsState.current[idx + 4];
       const speed = carsState.current[idx + 5];
+      const type = carsState.current[idx + 6];
 
       progress += speed;
 
@@ -537,19 +585,34 @@ const TrafficSystem = ({ grid }: { grid: Grid }) => {
       const dx = tarX - curX;
       const dy = tarY - curY;
       const angle = Math.atan2(dy, dx);
+
       const offsetAmt = 0.15;
+      // Robbers drive recklessly (less offset)
+      const laneOffset = type === 2 ? 0.05 : offsetAmt;
+
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      const offX = (-dy / len) * offsetAmt;
-      const offY = (dx / len) * offsetAmt;
+      const offX = (-dy / len) * laneOffset;
+      const offY = (dx / len) * laneOffset;
 
       const [wx, _, wz] = gridToWorld(gx + offX, gy + offY);
-      dummy.position.set(wx, -0.3 + 0.075, wz);
+
+      // Bouncing visuals
+      const bounce = type === 0 ? 0 : Math.sin(time * 20) * 0.05; // Police/Robbers bounce
+      dummy.position.set(wx, -0.3 + 0.075 + bounce, wz);
       dummy.rotation.set(0, -angle, 0);
       dummy.scale.set(0.5, 0.15, 0.3);
       dummy.updateMatrix();
       carsRef.current.setMatrixAt(i, dummy.matrix);
+
+      // Update Color for Police Strobing
+      if (type === 1) {
+        const strobe = Math.floor(time * 10) % 2 === 0;
+        const c = new THREE.Color(strobe ? '#ef4444' : '#3b82f6'); // Red/Blue strobe
+        carsRef.current.setColorAt(i, c);
+      }
     }
     carsRef.current.instanceMatrix.needsUpdate = true;
+    if (carsRef.current.instanceColor) carsRef.current.instanceColor.needsUpdate = true;
   });
 
   if (roadTiles.length < 2) return null;
@@ -752,6 +815,38 @@ const BoatSystem = ({ grid }: { grid: Grid }) => {
     const time = state.clock.elapsedTime;
 
     for (let i = 0; i < boatCount; i++) {
+      // ... (Omitting inner loop details for brevity as I am just anchoring, but replace_file_content needs context)
+      // Wait, I can't omit. I need to match EXACTLY.
+      // I will use `insert after` logic? No, only replace.
+      // I will try to find a safe insertion point. 
+      // End of BoatSystem is easier?
+    }
+    // ...
+  });
+  // This is too hard to match exactly inside the function.
+  // I will append AFTER BoatSystem.
+
+  if (boatCount === 0) return null; // Wait, BoatSystem ends around line 830?
+  // Let's look at the file end of BoatSystem
+  // It ends with:
+  //   return (
+  //     <instancedMesh ref={boatsRef} args={[boxGeo, undefined, boatCount]} castShadow>
+  //       <meshStandardMaterial roughness={0.1} />
+  //     </instancedMesh>
+  //   );
+  // };
+
+  // I will check line 838 or so.
+
+  // Actually, I'll just look for the END of BoatSystem and insert PollutionSystem after it.
+
+  useFrame((state) => {
+    if (!boatsRef.current || waterTiles.length < 2 || boatsState.current.length === 0) return;
+
+    // Bobbing animation
+    const time = state.clock.elapsedTime;
+
+    for (let i = 0; i < boatCount; i++) {
       const idx = i * 6;
       let curX = boatsState.current[idx];
       let curY = boatsState.current[idx + 1];
@@ -812,6 +907,39 @@ const BoatSystem = ({ grid }: { grid: Grid }) => {
       <instancedMesh ref={boatsRef} args={[boxGeo, undefined, boatCount]} castShadow>
         <meshStandardMaterial roughness={0.1} color="#cbd5e1" />
       </instancedMesh>
+    </group>
+  );
+};
+
+const PollutionSystem = ({ grid, pollutionLevel }: { grid: Grid, pollutionLevel: number }) => {
+  // Determine polluted tiles
+  const pollutedTiles = useMemo(() => {
+    const tiles: { x: number, y: number }[] = [];
+    if (pollutionLevel <= 0) return tiles;
+
+    grid.forEach(row => row.forEach(tile => {
+      const config = BUILDINGS[tile.buildingType];
+      if ((config && config.pollution && config.pollution > 0) || tile.buildingType === BuildingType.Industrial) {
+        tiles.push({ x: tile.x, y: tile.y });
+      }
+    }));
+    return tiles;
+  }, [grid, pollutionLevel]);
+
+  if (pollutionLevel < 5 || pollutedTiles.length === 0) return null;
+
+  return (
+    <group>
+      {pollutedTiles.map((t, i) => {
+        const [wx, _, wz] = gridToWorld(t.x, t.y);
+        // Render a few clouds per tile
+        return (
+          <group key={`${t.x}-${t.y}`} position={[wx, 1.5, wz]}>
+            <Cloud position={[0, 0, 0]} scale={0.8} speed={0.2} />
+            <Cloud position={[0.5, 0.5, 0.5]} scale={0.5} speed={0.3} />
+          </group>
+        );
+      })}
     </group>
   );
 };
@@ -922,11 +1050,7 @@ const DisasterManager = ({ activeDisaster }: { activeDisaster: ActiveDisaster | 
 
   return null;
 }
-<meshStandardMaterial roughness={0.2} metalness={0.1} />
-      </instancedMesh >
-    </group >
-  );
-};
+
 
 
 const WeatherEffects = ({ weather }: { weather: WeatherType }) => {
@@ -1060,7 +1184,7 @@ const GroundTile = React.memo(({ type, x, y, grid, onHover, onLeave, onClick, ne
     } else if (type === BuildingType.Road) {
       color = '#000000';
       topY = -0.29;
-    } else if (type === BuildingType.Water) {
+    } else if (type === BuildingType.Water || type === BuildingType.Bridge) {
       color = '#06b6d4'; // Cyan-500 Glowing
       topY = -0.6;
     } else {
@@ -1075,8 +1199,8 @@ const GroundTile = React.memo(({ type, x, y, grid, onHover, onLeave, onClick, ne
     } else if (type === BuildingType.Road) {
       color = '#4b5563'; // Gray-600
       topY = -0.29;
-    } else if (type === BuildingType.Water) {
-      color = '#fde68a'; // Amber-200 (Warm Sand)
+    } else if (type === BuildingType.Water || type === BuildingType.Bridge) {
+      color = '#3b82f6'; // Blue-500
       topY = -0.6; // Deep seabed
     } else {
       // Softer Greens (Pastel/Emerald)
@@ -1130,9 +1254,11 @@ interface IsoMapProps {
   neonMode?: boolean;
   weather: WeatherType;
   activeDisaster: ActiveDisaster | null;
+  crimeRate: number;
+  pollutionLevel: number;
 }
 
-const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, population, day = 1, neonMode = false, weather, activeDisaster }) => {
+const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, population, day = 1, neonMode = false, weather, activeDisaster, crimeRate, pollutionLevel }) => {
   const [hoveredTile, setHoveredTile] = useState<{ x: number, y: number } | null>(null);
   const handleHover = useCallback((x: number, y: number) => { setHoveredTile({ x, y }); }, []);
   const handleLeave = useCallback(() => { setHoveredTile(null); }, []);
@@ -1182,10 +1308,11 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, populat
 
           {/* Buildings */}
           {grid.map(row => row.map(tile => {
-            if (tile.buildingType !== BuildingType.None && tile.buildingType !== BuildingType.Road && tile.buildingType !== BuildingType.Bridge && tile.buildingType !== BuildingType.Water) {
+            // Render everything except None, Road, and Water (Water is flat tile only for now, unless we want 3D water)
+            if (tile.buildingType !== BuildingType.None && tile.buildingType !== BuildingType.Road && tile.buildingType !== BuildingType.Water) {
               const config = BUILDINGS[tile.buildingType];
               // Neon Logic: Switch to dark colors if mode on
-              const startColor = neonMode ? '#1e293b' : config.color; // Slate-800 base for all
+              const startColor = neonMode ? '#1e293b' : (config ? config.color : '#888888'); // Fallback color
               return (
                 <ProceduralBuilding
                   key={`b-${tile.x}-${tile.y}`}
@@ -1201,8 +1328,9 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, populat
 
           <EnvironmentEffects weather={weather} />
           <DisasterManager activeDisaster={activeDisaster} />
-          <TrafficSystem grid={grid} />
+          <TrafficSystem grid={grid} crimeRate={crimeRate} />
           <BoatSystem grid={grid} />
+          <PollutionSystem grid={grid} pollutionLevel={pollutionLevel} />
           <PopulationSystem population={population} grid={grid} />
           {showPreview && hoveredTile && (
             <group position={[previewPos[0], 0, previewPos[2]]}>

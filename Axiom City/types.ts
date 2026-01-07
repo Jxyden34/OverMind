@@ -20,7 +20,8 @@ export enum BuildingType {
   Apartment = 'Apartment',
   Mansion = 'Mansion',
   Water = 'Water',
-  Bridge = 'Bridge'
+  Bridge = 'Bridge',
+  Casino = 'Casino'
 }
 
 export enum EconomicEvent {
@@ -64,6 +65,8 @@ export interface BuildingConfig {
   color: string;
   popGen: number;
   incomeGen: number;
+  crime?: number; // + adds crime, - reduces it (Security)
+  pollution?: number; // + adds pollution, - reduces it (Cleaning)
 }
 
 export interface TileData {
@@ -77,39 +80,28 @@ export type Grid = TileData[][];
 export interface CityStats {
   money: number;
   population: number;
+  happiness: number;
+  education: number;
+  safety: number;
   day: number;
 
-  housingCapacity: number;
-
-  // Advanced Simulation Stats
-  taxRate: number; // 0.0 to 1.0
-  happiness: number; // 0 to 100
-  education: number; // 0 to 100
-  safety: number; // 0 to 100
-
-  budget: {
-    income: number;
-    expenses: number;
-    details: {
-      tax: number;
-      business: number;
-      export: number;
-      services: number;
-      welfare: number;
-      construction: number; // Currently not tracked in simulation step but useful
-    };
-  };
-
-  demographics: {
-    children: number;
-    adults: number;
-    seniors: number;
-  };
+  // Economy
+  taxRate: number;
+  unemployment: number; // 0-100%
   jobs: {
     commercial: number;
     industrial: number;
     total: number;
     unemployment: number;
+  };
+  demographics: {
+    children: number;
+    adults: number;
+    seniors: number;
+  };
+  budget: {
+    income: number;
+    expenses: number;
   };
 
   // Deeper Economy
@@ -124,6 +116,13 @@ export interface CityStats {
   sharePrice: number;
   investmentShares: number;
   investmentAverageCost: number;
+
+  // New Stats
+  crimeRate: number;
+  security: number;
+  pollutionLevel: number;
+
+  currentGoal: AIGoal | null;
 }
 
 export interface AIGoal {

@@ -39,14 +39,18 @@ export const INITIAL_STATS: CityStats = {
     eventDuration: 0,
     sharePrice: 100, // Initial share price $100
     investmentShares: 0,
-    investmentAverageCost: 0
+    investmentAverageCost: 0,
+    crimeRate: 0,
+    security: 100,
+    pollutionLevel: 0,
+    currentGoal: null
 };
 
 export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats => {
     let newStats = { ...currentStats };
     newStats.day += 1;
 
-    // 1. Calculate Buildings Count & Upkeep
+    // 1. Calculate Buildings Count & Upkeep & New Stats
     let schools = 0;
     let hospitals = 0;
     let police = 0;
@@ -57,6 +61,10 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     let commJobs = 0;
     let indJobs = 0;
 
+    // Accumulators for new stats
+    let rawCrime = 0;
+    let rawPollution = 0;
+
     grid.forEach(row => row.forEach(tile => {
         if (tile.buildingType === BuildingType.School) schools++;
         if (tile.buildingType === BuildingType.Hospital) hospitals++;
@@ -66,7 +74,7 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
         // Upkeep & Income
         if (tile.buildingType !== BuildingType.None) {
             // Assume generous default upkeep for now if not defined? 
-            // Better: Hardcode service costs
+            // Better: Hardcode service costs as fallback, but use config mostly
             if (tile.buildingType === BuildingType.School) serviceUpkeep += 10;
             if (tile.buildingType === BuildingType.Hospital) serviceUpkeep += 20;
             if (tile.buildingType === BuildingType.Police) serviceUpkeep += 15;
@@ -76,6 +84,10 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
             if (config) {
                 if (config.incomeGen !== 0) newStats.money += config.incomeGen;
                 if (config.popGen > 0) housingCapacity += config.popGen;
+
+                // Add Crime & Pollution
+                if (config.crime) rawCrime += config.crime;
+                if (config.pollution) rawPollution += config.pollution;
             }
         }
 
@@ -85,13 +97,30 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
 
     newStats.housingCapacity = housingCapacity;
 
+    // --- CRIME & POLLUTION CALCULATION ---
+    // Normalize logic:
+    // Crime: Base is 0. Increases with density/buildings. Reduced by negative values (Police).
+    // Minimum 0.
+    newStats.crimeRate = Math.max(0, rawCrime);
+    newStats.pollutionLevel = Math.max(0, rawPollution);
+
+    // Security is just the negative impact of police, but let's track it properly visually if needed.
+    // For now, rawCrime includes the negative offset from police.
+    // If rawCrime < 0 (Excess security), we clamp to 0.
+
+    // Security Score (0-100) for UI
+    // Rough calc: (Police * 25) / (Population / 10 + 1) * 100
+    // Actually simplicity is better: Security is inversely proportional to Crime Rate.
+    newStats.security = Math.max(0, 100 - newStats.crimeRate);
+
     const totalJobs = commJobs + indJobs;
 
     // 2. Population Dynamics (Aging)
 
     // Growth factors
     const educationLevel = Math.min(100, 50 + (schools * 10)); // Base 50 + 10 per school
-    const safetyLevel = Math.max(0, 100 - Math.max(0, (newStats.population / 50) - (police * 10))); // Simple crime calc
+    // Safety heavily impacted by Crime Rate now
+    const safetyLevel = Math.max(0, 100 - newStats.crimeRate * 2);
 
     newStats.education = educationLevel;
     newStats.safety = safetyLevel;
@@ -134,7 +163,9 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     newStats.demographics.adults -= agingAdults;
     newStats.demographics.seniors += agingAdults;
 
-    const deaths = Math.floor(newStats.demographics.seniors * deathChance);
+    // Crime Deaths: If crime is high (>50), seniors die faster.
+    const crimeDeathFactor = newStats.crimeRate > 50 ? 0.05 : 0;
+    const deaths = Math.floor(newStats.demographics.seniors * (deathChance + crimeDeathFactor));
     newStats.demographics.seniors = Math.max(0, newStats.demographics.seniors - deaths);
 
     newStats.population = newStats.demographics.children + newStats.demographics.adults + newStats.demographics.seniors;
@@ -191,7 +222,16 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     const businessRevenue = Math.floor(Math.min(totalJobs, newStats.demographics.adults) * 2 * newStats.taxRate * supplyPenalty * revenueMultiplier);
 
     const totalIncome = taxRevenue + businessRevenue;
-    const totalExpenses = serviceUpkeep + welfareCost;
+
+    // THEFT (Crime Impact)
+    // High crime steals directly from the treasury
+    // If Crime Rate > 20, lose $10 per 10 points.
+    let theftLoss = 0;
+    if (newStats.crimeRate > 20) {
+        theftLoss = Math.floor((newStats.crimeRate - 20) * 5);
+    }
+
+    const totalExpenses = serviceUpkeep + welfareCost + theftLoss;
 
     newStats.money += (totalIncome - totalExpenses);
 
@@ -204,7 +244,8 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
             business: businessRevenue,
             services: serviceUpkeep,
             welfare: welfareCost
-        }
+        },
+        lastMonthProfit: totalIncome - totalExpenses // Track profit for UI
     };
 
 
@@ -231,7 +272,14 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     // 5. Happiness Calculation
     let baseHappiness = 100;
     baseHappiness -= (newStats.taxRate * 200);
+    // Parks help, but Pollution hurts
     baseHappiness += Math.min(20, parks * 2);
+
+    // Pollution Penalty
+    // If pollution > 20, -1 happiness per point
+    if (newStats.pollutionLevel > 20) {
+        baseHappiness -= (newStats.pollutionLevel - 20);
+    }
 
     // Unemployment penalty is mitigated by Shadow Economy (people survive)
     // "Hidden economy keeps people alive"
@@ -248,8 +296,8 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     if (newStats.activeEvent === EconomicEvent.Recession) baseHappiness -= 10;
     if (newStats.activeEvent === EconomicEvent.Strike) baseHappiness -= 20;
 
-    const crimeRate = Math.max(0, (totalPop / 50) - police);
-    baseHappiness -= (crimeRate * 2);
+    // Crime Penalty (Fear)
+    baseHappiness -= (newStats.crimeRate * 0.5);
 
     newStats.happiness = Math.max(0, Math.min(100, Math.floor(baseHappiness)));
 

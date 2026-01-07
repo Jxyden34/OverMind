@@ -52,19 +52,22 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     type: BuildingType.Industrial,
     cost: 400,
     name: 'Factory',
-    description: '+$40/day',
+    description: '+$40/day. Pollutes.',
     color: '#facc15', // yellow-400
     popGen: 0,
     incomeGen: 40,
+    pollution: 15, // Heavy polluter
+    crime: 5,
   },
   [BuildingType.Park]: {
     type: BuildingType.Park,
     cost: 50,
     name: 'Park',
-    description: 'Looks nice.',
+    description: 'Cleans air.',
     color: '#4ade80', // green-400
     popGen: 1,
     incomeGen: 0,
+    pollution: -5, // Scrubs pollution
   },
   [BuildingType.School]: {
     type: BuildingType.School,
@@ -74,6 +77,7 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     color: '#fbbf24', // amber-400
     popGen: 0,
     incomeGen: -10, // Upkeep
+    crime: -2, // Education helps?
   },
   [BuildingType.Hospital]: {
     type: BuildingType.Hospital,
@@ -88,10 +92,12 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     type: BuildingType.Police,
     cost: 400,
     name: 'Police',
-    description: 'Safety',
+    description: 'Safety first!',
     color: '#1e40af', // blue-800
     popGen: 0,
     incomeGen: -10, // Upkeep
+    crime: -25, // MAJOR security boost (represented as negative crime in config, or handle as separate prop?) 
+    // Wait, let's use 'crime' field as 'crime impact'. Negative means security.
   },
   [BuildingType.FireStation]: {
     type: BuildingType.FireStation,
@@ -101,15 +107,18 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     color: '#dc2626', // red-600
     popGen: 0,
     incomeGen: -15, // Upkeep
+    crime: -5, // Minor security
   },
   [BuildingType.GoldMine]: {
     type: BuildingType.GoldMine,
     cost: 1500,
     name: 'Gold Mine',
-    description: '+$200/day. Risky?',
+    description: '+$200/day. High Crime.',
     color: '#fbbf24', // amber-400
     popGen: 0,
     incomeGen: 200,
+    crime: 10,
+    pollution: 10,
   },
   [BuildingType.Apartment]: {
     type: BuildingType.Apartment,
@@ -119,6 +128,7 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     color: '#94a3b8', // slate-400
     popGen: 4,
     incomeGen: 0,
+    crime: 2,
   },
   [BuildingType.Mansion]: {
     type: BuildingType.Mansion,
@@ -128,6 +138,7 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     color: '#a855f7', // purple-500
     popGen: 25,
     incomeGen: 0,
+    crime: -5, // Private security
   },
   [BuildingType.Water]: {
     type: BuildingType.Water,
@@ -140,11 +151,21 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
   },
   [BuildingType.Bridge]: {
     type: BuildingType.Bridge,
-    cost: 500,
-    name: 'Bridge',
-    description: 'Crosses Water',
-    color: '#78350f', // amber-900 (wood/stone)
+    cost: 150,
+    name: "Bridge",
+    description: "Crosses water.",
+    color: "#94a3b8",
     popGen: 0,
     incomeGen: 0,
+  },
+  [BuildingType.Casino]: {
+    type: BuildingType.Casino,
+    cost: 2500,
+    name: "Neon Casino",
+    description: "Huge $$$, Huge Crime.",
+    color: "#db2777", // Pink-700
+    popGen: 0,
+    incomeGen: 300,
+    crime: 30, // MAJOR CRIME SOURCE
   },
 };

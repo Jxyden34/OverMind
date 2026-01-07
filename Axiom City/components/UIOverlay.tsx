@@ -40,6 +40,7 @@ const tools = [
   BuildingType.Police,
   BuildingType.FireStation,
   BuildingType.GoldMine,
+  BuildingType.Casino,
   BuildingType.Bridge
 ];
 
@@ -70,7 +71,8 @@ const ToolButton = ({ type, isSelected, onClick, money }: { type: BuildingType, 
                             type === BuildingType.GoldMine ? '💰' :
                               type === BuildingType.Apartment ? '🏢' :
                                 type === BuildingType.Mansion ? '🏰' :
-                                  type === BuildingType.Bridge ? '🌉' : '❓'}
+                                  type === BuildingType.Casino ? '🎰' :
+                                    type === BuildingType.Bridge ? '🌉' : '❓'}
       </div>
       <div className="text-[9px] font-bold uppercase tracking-wider text-center leading-none text-white shadow-black drop-shadow-md">
         {config.name}
@@ -94,11 +96,25 @@ const StatusRow = ({ label, value, color }: { label: string, value: string, colo
 const CityStatusPanel = ({ stats }: { stats: CityStats }) => (
   <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-700 shadow-xl backdrop-blur-md w-48">
     <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2 border-b border-slate-700 pb-1">City Status</div>
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <StatusRow label="Population" value={stats.population.toLocaleString()} color="text-cyan-300" />
       <StatusRow label="Happiness" value={`${Math.round(stats.happiness)}%`} color={stats.happiness > 80 ? 'text-green-400' : stats.happiness > 40 ? 'text-yellow-400' : 'text-red-500'} />
       <StatusRow label="Education" value={`${Math.round(stats.education)}%`} color="text-blue-300" />
       <StatusRow label="Safety" value={`${Math.round(stats.safety)}%`} color="text-indigo-300" />
+
+      <StatusRow label="Crime Risk" value={stats.crimeRate > 0 ? `${stats.crimeRate}` : 'Low'} color={stats.crimeRate > 20 ? 'text-red-500' : 'text-gray-400'} />
+      <StatusRow label="Pollution" value={stats.pollutionLevel > 0 ? `${stats.pollutionLevel}` : 'Clean'} color={stats.pollutionLevel > 20 ? 'text-lime-400' : 'text-emerald-400'} />
+
+      <div className="h-px bg-slate-700 my-1.5" />
+
+      <StatusRow label="Unemployment" value={`${Math.round(stats.jobs.unemployment * 100)}%`} color={stats.jobs.unemployment < 0.1 ? 'text-green-400' : 'text-red-400'} />
+      <StatusRow label="Jobs" value={stats.jobs.total.toLocaleString()} color="text-orange-300" />
+      <StatusRow label="Tax Rate" value={`${Math.round(stats.taxRate * 100)}%`} color="text-yellow-200" />
+
+      <div className="h-px bg-slate-700 my-1.5" />
+
+      <StatusRow label="Income" value={`+$${stats.budget.income}`} color="text-green-400" />
+      <StatusRow label="Expenses" value={`-$${stats.budget.expenses}`} color="text-red-400" />
     </div>
   </div>
 );
@@ -177,10 +193,32 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
         </div>
 
+        <div className="flex flex-col gap-2 mt-2">
+          <button onClick={onCycleTax} className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[10px] uppercase font-bold py-1 px-2 rounded border border-slate-600 backdrop-blur">
+            Cycle Tax
+          </button>
+          <div className="flex gap-1">
+            <button onClick={onTakeLoan} className="flex-1 bg-green-900/60 hover:bg-green-800 text-green-100 text-[10px] uppercase font-bold py-1 px-2 rounded border border-green-700 backdrop-blur">
+              Loan (+5k)
+            </button>
+            <button onClick={onRepayLoan} className="flex-1 bg-red-900/60 hover:bg-red-800 text-red-100 text-[10px] uppercase font-bold py-1 px-2 rounded border border-red-700 backdrop-blur">
+              Repay
+            </button>
+          </div>
+          <div className="flex gap-1">
+            <button onClick={onBuyShares} className="flex-1 bg-blue-900/60 hover:bg-blue-800 text-blue-100 text-[10px] uppercase font-bold py-1 px-2 rounded border border-blue-700 backdrop-blur">
+              Buy Stock
+            </button>
+            <button onClick={onSellShares} className="flex-1 bg-yellow-900/60 hover:bg-yellow-800 text-yellow-100 text-[10px] uppercase font-bold py-1 px-2 rounded border border-yellow-700 backdrop-blur">
+              Sell Stock
+            </button>
+          </div>
+        </div>
+
         <button
           onClick={onToggleNeon}
           className={`
-            px-3 py-1.5 rounded-lg border font-bold text-[10px] uppercase tracking-widest transition-all shadow-lg backdrop-blur-md
+            mt-2 px-3 py-1.5 rounded-lg border font-bold text-[10px] uppercase tracking-widest transition-all shadow-lg backdrop-blur-md
             ${neonMode
               ? 'bg-fuchsia-900/80 border-fuchsia-500 text-fuchsia-200 shadow-[0_0_15px_rgba(232,121,249,0.5)]'
               : 'bg-slate-900/80 border-slate-600 text-slate-400 hover:bg-slate-800'

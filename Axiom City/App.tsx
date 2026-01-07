@@ -442,41 +442,12 @@ function App() {
     }
   }, [gameStarted, aiEnabled, performAction, addNewsItem]);
 
-  // --- Persistence (DISABLED TO FIX CORRUPTION) ---
+  // --- Persistence Cleanup (FORCE RESET) ---
+  // User demanded no saving and fresh random maps on reload.
   useEffect(() => {
-    // Only save on unload/periodically? No, let's just ignore loading old data.
-    // Force clean state.
-    statsRef.current = INITIAL_STATS;
-
-    /*
-    const savedGridData = localStorage.getItem('sky_metro_grid');
-    const savedStatsData = localStorage.getItem('sky_metro_stats');
-
-    if (savedGridData) {
-      try {
-        const savedGrid = JSON.parse(savedGridData);
-        if (savedGrid && savedGrid.length === GRID_SIZE) {
-          setGrid(savedGrid);
-        }
-      } catch (e) { console.error("Grid load error", e); }
-    }
-
-    if (savedStatsData) {
-      try {
-        const savedStats = JSON.parse(savedStatsData);
-        // Deep merge to ensure new fields (budget, housingCapacity) exist
-        const mergedStats = { 
-          ...INITIAL_STATS, 
-          ...savedStats, 
-          budget: { ...INITIAL_STATS.budget, ...savedStats.budget },
-          demographics: { ...INITIAL_STATS.demographics, ...savedStats.demographics },
-          jobs: { ...INITIAL_STATS.jobs, ...savedStats.jobs }
-        };
-        setStats(mergedStats);
-        statsRef.current = mergedStats;
-      } catch (e) { console.error("Stats load error", e); }
-    }
-    */
+    console.log("🧹 FORCE CLEARING LOCAL STORAGE");
+    localStorage.clear();
+    // This ensures that even if I accidentally left something behind, it's gone.
   }, []);
 
 
@@ -609,17 +580,17 @@ function App() {
 
   const handleResetCity = () => {
     if (window.confirm("Are you sure you want to WIPE the city and start over?")) {
-      setGrid(createInitialGrid()); // Reset grid
-      setStats(INITIAL_STATS);
-      statsRef.current = INITIAL_STATS;
-      setAiFailures([]);
-      setNewsFeed([]);
-      setAiEnabled(true);
-      setCurrentGoal(null);
       // Clear storage
       localStorage.removeItem('sky_metro_grid');
       localStorage.removeItem('sky_metro_stats');
-      window.location.reload();
+
+      const newGrid = createInitialGrid(); // Generate once
+      setGrid(newGrid);
+      setStats(INITIAL_STATS);
+      statsRef.current = INITIAL_STATS;
+      gridRef.current = newGrid; // Sync ref
+
+      addNewsItem({ id: Date.now().toString(), text: "City Reset. Welcome back, Mayor.", type: 'neutral' });
     }
   };
 
@@ -637,6 +608,8 @@ function App() {
         neonMode={neonMode}
         weather={weather}
         activeDisaster={activeDisaster}
+        crimeRate={stats.crimeRate}
+        pollutionLevel={stats.pollutionLevel}
       />
 
       {/* Start Screen Overlay */}
