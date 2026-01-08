@@ -3,11 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useEffect, useRef, useState } from 'react';
-import { BuildingType, CityStats, AIGoal, NewsItem, WeatherType, DisasterType, ActiveDisaster, HistoryLogEntry } from '../types';
+import { BuildingType, CityStats, AIGoal, NewsItem, WeatherType, DisasterType, ActiveDisaster, HistoryLogEntry, Grid } from '../types';
 import { BUILDINGS } from '../constants';
 
 interface UIOverlayProps {
   stats: CityStats;
+  grid: Grid;
+  selectedTool: BuildingType;
   selectedTool: BuildingType;
   onSelectTool: (type: BuildingType) => void;
   currentGoal: AIGoal | null;
@@ -27,6 +29,8 @@ interface UIOverlayProps {
   aiEnabled: boolean;
   onToggleAi: () => void;
   historyLog: HistoryLogEntry[];
+  showHistory: boolean;
+  onToggleHistory: () => void;
 }
 
 const tools = [
@@ -44,22 +48,37 @@ const tools = [
   BuildingType.FireStation,
   BuildingType.GoldMine,
   BuildingType.Casino,
+  BuildingType.MegaMall,
+  BuildingType.SpacePort,
+  BuildingType.University,
+  BuildingType.Stadium,
   BuildingType.Bridge
 ];
 
-const ToolButton = ({ type, isSelected, onClick, money }: { type: BuildingType, isSelected: boolean, onClick: () => void, money: number }) => {
+const ToolButton = ({ type, isSelected, onClick, money, grid }: { type: BuildingType, isSelected: boolean, onClick: () => void, money: number, grid: Grid }) => {
   const config = BUILDINGS[type];
   const canAfford = money >= config.cost;
+
+  // Check limits
+  let count = 0;
+  if (config.maxAllowed) {
+    grid.forEach(row => row.forEach(tile => {
+      if (tile.buildingType === type) count++;
+    }));
+  }
+  const isLimitReached = config.maxAllowed ? count >= config.maxAllowed : false;
+
   return (
     <button
       onClick={onClick}
-      disabled={!canAfford && type !== BuildingType.None}
+      disabled={(!canAfford && type !== BuildingType.None) || isLimitReached}
       className={`
         relative group flex-shrink-0 flex flex-col items-center justify-center w-24 h-24 rounded-2xl border-2 transition-all
         ${isSelected ? 'border-cyan-400 bg-cyan-900/80 shadow-[0_0_20px_rgba(34,211,238,0.6)] scale-105 z-10' : 'border-slate-700 bg-slate-800/80 hover:bg-slate-700'}
-        ${!canAfford && type !== BuildingType.None ? 'opacity-50 cursor-not-allowed grayscale' : 'cursor-pointer'}
+        ${(!canAfford && type !== BuildingType.None) || isLimitReached ? 'opacity-50 cursor-not-allowed grayscale' : 'cursor-pointer'}
       `}
     >
+      {isLimitReached && <div className="absolute top-1 right-1 text-[10px] bg-red-600 text-white px-1 rounded">MAX</div>}
       <div className={`text-4xl mb-2 ${isSelected ? 'animate-bounce' : ''}`}>
         {type === BuildingType.None ? '🚜' :
           type === BuildingType.Road ? '🛣️' :
@@ -75,7 +94,11 @@ const ToolButton = ({ type, isSelected, onClick, money }: { type: BuildingType, 
                               type === BuildingType.Apartment ? '🏢' :
                                 type === BuildingType.Mansion ? '🏰' :
                                   type === BuildingType.Casino ? '🎰' :
-                                    type === BuildingType.Bridge ? '🌉' : '❓'}
+                                    type === BuildingType.MegaMall ? '🛍️' :
+                                      type === BuildingType.SpacePort ? '🚀' :
+                                        type === BuildingType.University ? '🎓' :
+                                          type === BuildingType.Stadium ? '🏟️' :
+                                            type === BuildingType.Bridge ? '🌉' : '❓'}
       </div>
       <div className="text-[11px] font-bold uppercase tracking-wider text-center leading-none text-white shadow-black drop-shadow-md">
         {config.name}
@@ -144,19 +167,41 @@ const AiControlPanel = ({ status, onReset }: { status: string, onReset: () => vo
   </div>
 );
 
-const UIOverlay: React.FC<UIOverlayProps> = ({
-  stats, selectedTool, onSelectTool, currentGoal, newsFeed, onClaimReward, isGeneratingGoal,
-  onCycleTax, onTakeLoan, onRepayLoan, onBuyShares, onSellShares, onResetCity,
-  neonMode, onToggleNeon, weather, activeDisaster, onTriggerDisaster,
-  aiEnabled, onToggleAi, historyLog
-}) => {
+const UIOverlay = ({
+  stats,
+  grid,
+  selectedTool,
+  onSelectTool,
+  currentGoal,
+  newsFeed,
+  onClaimReward,
+  isGeneratingGoal,
+  onCycleTax,
+  onTakeLoan,
+  onRepayLoan,
+  onBuyShares,
+  onSellShares,
+  onResetCity,
+  neonMode,
+  onToggleNeon,
+  weather,
+  activeDisaster,
+  onTriggerDisaster,
+  aiEnabled,
+  onToggleAi,
+  historyLog,
+  showHistory,
+  onToggleHistory
+}: UIOverlayProps) => {
+
+  const [activeTab, setActiveTab] = useState<'build' | 'stats' | 'events'>('build');
+
   const newsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (newsRef.current) newsRef.current.scrollTop = newsRef.current.scrollHeight;
   }, [newsFeed]);
 
-  const [showHistory, setShowHistory] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll history
@@ -180,7 +225,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 <h2 className="text-3xl font-black uppercase tracking-widest text-amber-100 font-serif">City Chronicles</h2>
                 <p className="text-amber-300/60 font-mono text-sm uppercase tracking-wide">The history of your civilization</p>
               </div>
-              <button onClick={() => setShowHistory(false)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-full transition-colors">
+              <button onClick={onToggleHistory} className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-full transition-colors">
                 ❌
               </button>
             </div>
@@ -217,8 +262,10 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
       )}
 
       {/* Top Left: Panels */}
-      <div className="flex flex-col gap-4 items-start pointer-events-auto">
+      <div className="flex flex-col gap-4 items-start pointer-auto">
         <CityStatusPanel stats={stats} />
+
+
 
         {/* News Feed Moved Here */}
         <div className="w-96 md:w-[28rem] h-72 bg-slate-950/95 rounded-2xl border-2 border-slate-700 shadow-2xl overflow-hidden flex flex-col">
@@ -266,7 +313,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
       )}
 
       {/* Top Right: Treasury & Settings */}
-      <div className="absolute top-4 right-4 flex flex-col gap-3 items-end pointer-events-auto">
+      <div className="absolute top-4 right-4 flex flex-col gap-3 items-end pointer-auto">
         <div className="bg-slate-900/95 p-6 rounded-2xl border-2 border-slate-600 shadow-2xl backdrop-blur-xl w-96 md:w-[28rem]">
           <div className="text-base font-black uppercase tracking-widest text-gray-300 mb-2 border-b-2 border-slate-600 pb-2 flex justify-between">
             <span>Treasury</span>
@@ -331,27 +378,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
           {neonMode ? 'Neon Mode: ON' : 'Neon Mode: OFF'}
         </button>
 
-        {/* AI Mayor Toggle - Enhanced Design */}
-        <div className="mt-3 pt-3 border-t border-slate-700/50">
-          <button
-            onClick={onToggleAi}
-            className={`
-               w-full py-2 px-3 rounded-xl border-2 font-black uppercase tracking-widest text-xs transition-all duration-300 shadow-lg flex items-center justify-between group
-               ${aiEnabled
-                ? 'bg-gradient-to-r from-cyan-900/80 to-blue-900/80 border-cyan-400 text-cyan-100 shadow-[0_0_15px_rgba(34,211,238,0.4)]'
-                : 'bg-slate-800/80 border-slate-600 text-slate-400 hover:bg-slate-700 hover:border-slate-500'
-              }
-             `}
-          >
-            <span className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full transition-colors ${aiEnabled ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`}></span>
-              AI Mayor
-            </span>
-            <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${aiEnabled ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-700 text-slate-500'}`}>
-              {aiEnabled ? 'ACTIVE' : 'OFFLINE'}
-            </span>
-          </button>
-        </div>
+
       </div>
 
       {/* Bottom: Tools Only (Feed Moved) */}
@@ -360,64 +387,85 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
         <div className="bg-slate-900/90 p-2 rounded-2xl border border-slate-700 shadow-2xl overflow-x-auto no-scrollbar max-w-[90vw]">
           <div className="flex gap-2">
             {tools.map(type => (
-              <ToolButton key={type} type={type} isSelected={selectedTool === type} onClick={() => onSelectTool(type)} money={stats.money} />
+              <ToolButton key={type} type={type} isSelected={selectedTool === type} onClick={() => onSelectTool(type)} money={stats.money} grid={grid} />
             ))}
           </div>
         </div>
       </div>
 
-      {/* AI Goal Panel Floating (Matched Size) */}
-      <div className={`absolute bottom-32 right-8 w-96 md:w-[28rem] bg-indigo-900/95 text-white rounded-2xl border-2 border-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.5)] backdrop-blur-md overflow-hidden transition-all pointer-events-auto transform scale-100 hover:scale-105 origin-bottom-right`}>
-        <div className="bg-indigo-800/90 px-6 py-4 flex justify-between items-center border-b border-indigo-600">
-          <span className="font-bold uppercase text-base tracking-widest flex items-center gap-3 shadow-sm">
-            <>
-              <span className={`w-4 h-4 rounded-full ${isGeneratingGoal ? 'bg-yellow-400 animate-ping' : 'bg-cyan-400 animate-pulse'}`}></span>
-              AI Advisor
-            </>
-          </span>
-          {isGeneratingGoal && <span className="text-sm animate-pulse text-yellow-300 font-mono">Thinking...</span>}
-        </div>
-
-        <div className="p-6">
-          {currentGoal ? (
-            <>
-              <p className="text-lg font-medium text-indigo-50 mb-5 leading-relaxed drop-shadow">"{currentGoal.description}"</p>
-
-              <div className="flex justify-between items-center mt-2 bg-indigo-950/60 p-3 rounded-lg border border-indigo-700/50">
-                <div className="text-xs text-gray-300 uppercase font-bold tracking-wider">
-                  Target: <span className="font-mono font-bold text-white text-sm ml-2">
-                    {currentGoal.targetType === 'building_count' && currentGoal.buildingType && BUILDINGS[currentGoal.buildingType]
-                      ? BUILDINGS[currentGoal.buildingType].name
-                      : currentGoal.targetType === 'money'
-                        ? '$'
-                        : 'Pop.'} {currentGoal.targetValue}
-                  </span>
-                </div>
-                <div className="text-xs text-yellow-300 font-bold font-mono bg-yellow-900/50 px-3 py-1 rounded-full border border-yellow-600/50 shadow-[0_0_10px_rgba(234,179,8,0.3)]">
-                  +${currentGoal.reward}
-                </div>
-              </div>
-
-              {currentGoal.completed && (
-                <button
-                  onClick={onClaimReward}
-                  className="mt-4 w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold py-3 px-4 rounded-xl shadow-[0_0_20px_rgba(34,197,94,0.6)] transition-all animate-bounce text-sm uppercase tracking-wide border border-green-400/50"
-                >
-                  Collect Reward
-                </button>
-              )}
-            </>
-          ) : (
-            <div className="text-sm text-gray-400 py-4 italic flex items-center gap-3 justify-center">
-              <svg className="animate-spin h-5 w-5 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Analyzing city metrics...
+      {/* AI Goal & Control Panel Combined */}
+      {aiEnabled ? (
+        <div className={`absolute bottom-32 right-8 w-96 md:w-[28rem] bg-indigo-900/95 text-white rounded-2xl border-2 border-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.5)] backdrop-blur-md overflow-hidden transition-all pointer-events-auto transform scale-100 hover:scale-105 origin-bottom-right`}>
+          <div className="bg-indigo-800/90 px-6 py-4 flex justify-between items-center border-b border-indigo-600">
+            <span className="font-bold uppercase text-base tracking-widest flex items-center gap-3 shadow-sm">
+              <>
+                <span className={`w-4 h-4 rounded-full ${isGeneratingGoal ? 'bg-yellow-400 animate-ping' : 'bg-cyan-400 animate-pulse'}`}></span>
+                AI Mayor
+              </>
+            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-mono text-indigo-300 uppercase">Active</span>
+              <button
+                onClick={onToggleAi}
+                className="w-12 h-6 rounded-full bg-cyan-500 p-1 transition-colors duration-300 relative"
+              >
+                <div className="w-4 h-4 rounded-full bg-white shadow-md transform translate-x-6 transition-transform duration-300"></div>
+              </button>
             </div>
-          )}
+          </div>
+
+          <div className="p-6">
+            {currentGoal ? (
+              <>
+                <p className="text-lg font-medium text-indigo-50 mb-5 leading-relaxed drop-shadow">"{currentGoal.description}"</p>
+
+                <div className="flex justify-between items-center mt-2 bg-indigo-950/60 p-3 rounded-lg border border-indigo-700/50">
+                  <div className="text-xs text-gray-300 uppercase font-bold tracking-wider">
+                    Target: <span className="font-mono font-bold text-white text-sm ml-2">
+                      {currentGoal.targetType === 'building_count' && currentGoal.buildingType && BUILDINGS[currentGoal.buildingType]
+                        ? BUILDINGS[currentGoal.buildingType].name
+                        : currentGoal.targetType === 'money'
+                          ? '$'
+                          : 'Pop.'} {currentGoal.targetValue}
+                    </span>
+                  </div>
+                  <div className="text-xs text-yellow-300 font-bold font-mono bg-yellow-900/50 px-3 py-1 rounded-full border border-yellow-600/50 shadow-[0_0_10px_rgba(234,179,8,0.3)]">
+                    +${currentGoal.reward}
+                  </div>
+                </div>
+
+                {currentGoal.completed && (
+                  <button
+                    onClick={onClaimReward}
+                    className="mt-4 w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold py-3 px-4 rounded-xl shadow-[0_0_20px_rgba(34,197,94,0.6)] transition-all animate-bounce text-sm uppercase tracking-wide border border-green-400/50"
+                  >
+                    Collect Reward
+                  </button>
+                )}
+              </>
+            ) : (
+              <div className="text-sm text-gray-400 py-4 italic flex items-center gap-3 justify-center">
+                <svg className="animate-spin h-5 w-5 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                {isGeneratingGoal ? "Analyzing city layout..." : "AI is idle..."}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* Minimized State */
+        <div className="absolute bottom-32 right-8 pointer-events-auto transform transition-all hover:scale-110 origin-bottom-right">
+          <button
+            onClick={onToggleAi}
+            className="flex items-center gap-3 bg-slate-800/90 hover:bg-indigo-600 border-2 border-slate-600 hover:border-indigo-400 text-slate-300 hover:text-white px-5 py-3 rounded-full shadow-lg backdrop-blur-md group transition-all"
+          >
+            <span className="w-3 h-3 rounded-full bg-red-500 group-hover:bg-cyan-400 shadow-[0_0_10px_rgba(239,68,68,0.5)] group-hover:shadow-[0_0_10px_rgba(34,211,238,0.8)] transition-all"></span>
+            <span className="font-bold uppercase tracking-widest text-xs">Enable AI Mayor</span>
+          </button>
+        </div>
+      )}
 
     </div>
   );

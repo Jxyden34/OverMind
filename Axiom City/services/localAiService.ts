@@ -273,12 +273,21 @@ ${lowMoneyWarning}
 4. If you decide to WAIT, output "WAIT".
 
 **STRATEGY GUIDE**:
-  1. **CHALLENGE**: If 'currentGoal' is active, PRIORITIZE it!
-  2. **CRIME**: If CrimeRate > Security, BUILD **Police** if available.
-  3. **POLLUTION**: If Pollution > 15, BUILD **Park** or **University** (Green tech).
-  4. **HAPPINESS**: If Happiness < 70, BUILD **Park** or **Commercial**.
-  5. **GROWTH**: If you have money, BUILD **Residential** or **Industrial**.
-  6. **SOLVENCY**: If Money is low, BUILD **Commercial** or **GoldMine**.
+  1. **CHALLENGE**: If 'currentGoal' is active, PRIORITIZE it above all other actions.
+  2. **CRIME**: If CrimeRate > Security, BUILD **Police** (if available) to stabilise the city.
+  3. **POLLUTION**: If Pollution > 15, BUILD **Park** or **University** (green technology & education).
+  4. **HAPPINESS**: If Happiness < 70, BUILD **Park** (preferred) or **Commercial** for leisure and jobs.
+  5. **GROWTH**: If the city is stable and you have money, BUILD **Residential** or **Industrial** to expand.
+  6. **SOLVENCY**:
+     - If Money < 1500, BUILD **Commercial**.
+     - If Money > 10000, BUILD **GoldMine** to store surplus wealth.
+  7. **SPECIAL**: You may build unique wonders (Limit 1 per city, only if Money > $15000):
+     - **MegaMall**: Massive income ($400), but high traffic.
+     - **SpacePort**: Huge tourism income ($5000).
+     - **University**: Boosts education and technology.
+     - **Stadium**: Massive happiness boost (+15).
+     *Warning*: These are expensive and should only be built when the city is stable.
+
 
 Respond with VALID JSON ONLY. Format:
 {

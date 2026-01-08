@@ -21,6 +21,11 @@ export enum BuildingType {
   Mansion = 'Mansion',
   Water = 'Water',
   Bridge = 'Bridge',
+  // Special
+  MegaMall = 'MegaMall',
+  SpacePort = 'SpacePort',
+  University = 'University',
+  Stadium = 'Stadium',
   Casino = 'Casino'
 }
 
@@ -30,6 +35,7 @@ export enum EconomicEvent {
   Recession = 'RECESSION', // Low revenue, share crash
   Strike = 'STRIKE', // No commercial/industrial income
   Audit = 'AUDIT', // One-time fine, frozen accounts?
+  Festival = 'FESTIVAL', // Happiness boost, cost money
 }
 
 export enum WeatherType {
@@ -67,13 +73,15 @@ export interface BuildingConfig {
   incomeGen: number;
   crime?: number; // + adds crime, - reduces it (Security)
   pollution?: number; // + adds pollution, - reduces it (Cleaning)
+  maxAllowed?: number; // Optional limit (e.g. 1 per city)
 }
 
 export interface TileData {
   x: number;
   y: number;
   buildingType: BuildingType;
-  pollution: number; // 0-100, dynamic local pollution
+  pollution?: number; // 0-100, dynamic local pollution
+  hasRoadAccess?: boolean; // True if adjacent to a road
 }
 
 export type Grid = TileData[][];

@@ -57,6 +57,7 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     let hospitals = 0;
     let police = 0;
     let parks = 0;
+    let universities = 0;
     let housingCapacity = 0;
     let serviceUpkeep = 0;
 
@@ -72,19 +73,50 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
         if (tile.buildingType === BuildingType.Hospital) hospitals++;
         if (tile.buildingType === BuildingType.Police) police++;
         if (tile.buildingType === BuildingType.Park) parks++;
+        if (tile.buildingType === BuildingType.University) universities++;
 
         // Upkeep & Income
         if (tile.buildingType !== BuildingType.None) {
-            // Assume generous default upkeep for now if not defined? 
-            // Better: Hardcode service costs as fallback, but use config mostly
-            if (tile.buildingType === BuildingType.School) serviceUpkeep += 10;
-            if (tile.buildingType === BuildingType.Hospital) serviceUpkeep += 20;
-            if (tile.buildingType === BuildingType.Police) serviceUpkeep += 15;
-            if (tile.buildingType === BuildingType.FireStation) serviceUpkeep += 15;
+            // --- ROAD CONNECTIVITY CHECK ---
+            // Check 4 neighbors for Road building type
+            let connected = false;
+            // Valid buildings that don't need roads: Road, Water, Bridge, Park (maybe?)
+            // Let's say Park needs road for full effect too? For now, enforcing on all "structures".
+            if (tile.buildingType === BuildingType.Road || tile.buildingType === BuildingType.Bridge || tile.buildingType === BuildingType.Water) {
+                connected = true;
+            } else {
+                const neighbors = [
+                    { x: tile.x + 1, y: tile.y },
+                    { x: tile.x - 1, y: tile.y },
+                    { x: tile.x, y: tile.y + 1 },
+                    { x: tile.x, y: tile.y - 1 }
+                ];
+                for (const n of neighbors) {
+                    if (n.y >= 0 && n.y < grid.length && n.x >= 0 && n.x < grid[0].length) {
+                        if (grid[n.y][n.x].buildingType === BuildingType.Road || grid[n.y][n.x].buildingType === BuildingType.Bridge) {
+                            connected = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            // Store status in object for Renderer (mutating cloned grid tile is fine here as it's a fresh copy structure if done right, 
+            // but updateSimulation is mutating 'grid' argument? No, it usually treats it as read-only or we should be careful. 
+            // The simulation loop currently iterates 'grid'. We should probably output the status.
+            // For now, let's mutate the tile property since we are in the simulation step and it will be persisted to state.
+            tile.hasRoadAccess = connected;
 
             const config = BUILDINGS[tile.buildingType];
             if (config) {
-                if (config.incomeGen !== 0) newStats.money += config.incomeGen;
+                let income = config.incomeGen;
+
+                // PENALTY
+                if (!connected && tile.buildingType !== BuildingType.None) {
+                    income = Math.floor(income * 0.5); // 50% Income
+                    // Happiness penalty logic accumulated below
+                }
+
+                if (income !== 0) newStats.money += income;
                 if (config.popGen > 0) housingCapacity += config.popGen;
 
                 // Add Crime & Pollution
@@ -98,6 +130,32 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     }));
 
     newStats.housingCapacity = housingCapacity;
+
+    // --- SPECIAL BUILDING EFFECTS ---
+    // University Boost: Find all universities and apply boost to neighbors
+    const UNI_RADIUS = 3;
+    if (universities > 0) {
+        grid.forEach(row => row.forEach(tile => {
+            if (tile.buildingType === BuildingType.University) {
+                // Apply boost to neighbors
+                for (let dy = -UNI_RADIUS; dy <= UNI_RADIUS; dy++) {
+                    for (let dx = -UNI_RADIUS; dx <= UNI_RADIUS; dx++) {
+                        const ny = tile.y + dy;
+                        const nx = tile.x + dx;
+                        if (ny >= 0 && ny < grid.length && nx >= 0 && nx < grid[0].length) {
+                            // Boost logic would ideally be on the tile, but for now we boost global stats slightly based on coverage
+                            // Or better: We assume tech boost increases efficiency globally per university
+                        }
+                    }
+                }
+            }
+        }));
+        // Tech Boost: Education scales better
+        newStats.education += universities * 10;
+    }
+
+    // Mega Mall & Space Port are handled via INCOME GEN in loop (already high)
+    // Stadium is handled via Happiness (below)
 
     // --- CRIME & POLLUTION CALCULATION ---
     // Normalize logic:
@@ -207,6 +265,11 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     const bureaucracyCost = Math.floor(Math.pow(newStats.population, 1.1) * 0.1);
     serviceUpkeep += bureaucracyCost;
 
+    // Festival Cost (Party Budget)
+    if (newStats.activeEvent === EconomicEvent.Festival) {
+        serviceUpkeep += 100 + (newStats.population * 2);
+    }
+
     // Taxes & Revenue (Variable!)
     // Supply Shortages reduce Commercial revenue.
     const supplyPenalty = 1 - (1 - newStats.supplyLevel); // 0.8 supply = 0.8 revenue factor
@@ -219,6 +282,7 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     if (newStats.activeEvent === EconomicEvent.Boom) revenueMultiplier = 1.5;
     if (newStats.activeEvent === EconomicEvent.Recession) revenueMultiplier = 0.7;
     if (newStats.activeEvent === EconomicEvent.Strike) revenueMultiplier = 0.2; // Strike cripples income
+    if (newStats.activeEvent === EconomicEvent.Festival) revenueMultiplier = 1.2; // Tourism boost!
 
     const taxRevenue = Math.floor(newStats.demographics.adults * 5 * newStats.taxRate * taxEfficiency * revenueMultiplier);
     const businessRevenue = Math.floor(Math.min(totalJobs, newStats.demographics.adults) * 2 * newStats.taxRate * supplyPenalty * revenueMultiplier);
@@ -277,6 +341,11 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     // Parks help, but Pollution hurts
     baseHappiness += Math.min(20, parks * 2);
 
+    // Stadium: Huge Happiness Boost
+    let stadiums = 0;
+    grid.flat().forEach(t => { if (t.buildingType === BuildingType.Stadium) stadiums++; });
+    if (stadiums > 0) baseHappiness += 15;
+
     // Pollution Penalty (Local & Global)
     // 1. Global Smog Penalty
     if (newStats.pollutionLevel > 20) {
@@ -312,10 +381,25 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
         baseHappiness -= (1 - newStats.supplyLevel) * 20; // Up to -20 happiness if 0 supply
     }
 
+    // Road Connectivity Penalty
+    let unconnectedCount = 0;
+    grid.flat().forEach(t => {
+        if (t.buildingType !== BuildingType.None && t.buildingType !== BuildingType.Road && t.buildingType !== BuildingType.Water &&
+            t.hasRoadAccess === false) {
+            unconnectedCount++;
+        }
+    });
+    if (unconnectedCount > 0) {
+        // -1 Happiness per disconnected building, capped at -20
+        baseHappiness -= Math.min(20, unconnectedCount);
+    }
+
     // Event Happiness
     if (newStats.activeEvent === EconomicEvent.Boom) baseHappiness += 10;
     if (newStats.activeEvent === EconomicEvent.Recession) baseHappiness -= 10;
     if (newStats.activeEvent === EconomicEvent.Strike) baseHappiness -= 20;
+    if (newStats.activeEvent === EconomicEvent.Festival) baseHappiness += 20; // Massive party boost
+
 
     // Crime Penalty (Fear)
     baseHappiness -= (newStats.crimeRate * 0.5);

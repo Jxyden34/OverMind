@@ -5,7 +5,7 @@
 import { BuildingConfig, BuildingType } from './types';
 
 // Map Settings
-export const GRID_SIZE = 60;
+export const GRID_SIZE = 45;
 
 // Game Settings
 export const TICK_RATE_MS = 2000; // Game loop updates every 2 seconds
@@ -67,7 +67,7 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     color: '#4ade80', // green-400
     popGen: 1,
     incomeGen: 0,
-    pollution: -5, // Scrubs pollution
+    pollution: -10, // Scrubs pollution
   },
   [BuildingType.School]: {
     type: BuildingType.School,
@@ -116,8 +116,8 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     description: '+$200/day. High Crime.',
     color: '#fbbf24', // amber-400
     popGen: 0,
-    incomeGen: 200,
-    crime: 10,
+    incomeGen: 600,
+    crime: 0,
     pollution: 10,
   },
   [BuildingType.Apartment]: {
@@ -126,7 +126,7 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     name: 'Flat',
     description: 'Starter Home (Cap: 4)',
     color: '#94a3b8', // slate-400
-    popGen: 4,
+    popGen: 2,
     incomeGen: 0,
     crime: 2,
   },
@@ -168,4 +168,49 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     incomeGen: 300,
     crime: 30, // MAJOR CRIME SOURCE
   },
+  [BuildingType.MegaMall]: {
+    type: BuildingType.MegaMall,
+    cost: 10000,
+    name: "Mega Mall",
+    description: "Retail Empire. High Traffic.",
+    color: "#ec4899", // Pink-500
+    popGen: 0,
+    incomeGen: 400, // Massive income
+    crime: 10,
+    pollution: 5,
+    maxAllowed: 1
+  },
+  [BuildingType.SpacePort]: {
+    type: BuildingType.SpacePort,
+    cost: 250000,
+    name: "Space Port",
+    description: "Gateway to the stars. Tourism ++",
+    color: "#6366f1", // Indigo-500
+    popGen: 0,
+    incomeGen: 5000,
+    crime: 5,
+    maxAllowed: 1
+  },
+  [BuildingType.University]: {
+    type: BuildingType.University,
+    cost: 8000,
+    name: "University",
+    description: "Boosts nearby tech.",
+    color: "#3b82f6", // Blue-500
+    popGen: 0,
+    incomeGen: -100, // Expensive upkeep
+    crime: -10,
+    maxAllowed: 1
+  },
+  [BuildingType.Stadium]: {
+    type: BuildingType.Stadium,
+    cost: 12000,
+    name: "Stadium",
+    description: "Massive Entertainment.",
+    color: "#f59e0b", // Amber-500
+    popGen: 0,
+    incomeGen: 100,
+    crime: 15, // Hooligans
+    maxAllowed: 1
+  }
 };

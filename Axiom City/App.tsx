@@ -65,8 +65,10 @@ function App() {
 
   // City History Log
   const [historyLog, setHistoryLog] = useState<HistoryLogEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false); // Lifed state
 
   const addToHistory = useCallback((text: string, type: 'major' | 'minor' | 'disaster' | 'milestone' = 'major') => {
+    // Logging history event
     setHistoryLog(prev => [
       { id: Date.now().toString() + Math.random(), day: statsRef.current.day, text, type },
       ...prev
@@ -96,6 +98,7 @@ function App() {
           case EconomicEvent.Recession: msg = "Market Recession"; break;
           case EconomicEvent.Strike: msg = "Labor Strike"; break;
           case EconomicEvent.Audit: msg = "Federal Audit"; break;
+          case EconomicEvent.Festival: msg = "Grand Festival!"; break;
         }
         addToHistory(msg, 'major');
       } else {
@@ -345,7 +348,7 @@ function App() {
   useEffect(() => {
     if (!gameStarted) return;
 
-    addNewsItem({ id: Date.now().toString(), text: "Welcome to SkyMetropolis. Terrain generation complete.", type: 'positive' });
+    addNewsItem({ id: Date.now().toString(), text: "Welcome to Axiom City. Terrain generation complete.", type: 'positive' });
 
     if (aiEnabled) {
       fetchNewGoal();
@@ -682,6 +685,7 @@ function App() {
         crimeRate={stats.crimeRate}
         pollutionLevel={stats.pollutionLevel}
         windDirection={stats.windDirection}
+        activeEvent={stats.activeEvent}
       />
 
       {/* Start Screen Overlay */}
@@ -719,9 +723,12 @@ function App() {
           weather={weather}
           activeDisaster={activeDisaster}
           onTriggerDisaster={() => triggerDisaster()}
+          grid={grid}
           aiEnabled={aiEnabled}
           onToggleAi={() => setAiEnabled(!aiEnabled)}
           historyLog={historyLog}
+          showHistory={showHistory}
+          onToggleHistory={() => setShowHistory(!showHistory)}
         />
       )}
 

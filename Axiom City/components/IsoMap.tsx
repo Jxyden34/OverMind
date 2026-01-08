@@ -1,4 +1,3 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -8,8 +7,9 @@ import { Canvas, useFrame, ThreeElements } from '@react-three/fiber';
 import { MapControls, Environment, Float, Outlines, OrthographicCamera } from '@react-three/drei';
 import * as THREE from 'three';
 import { MathUtils } from 'three';
-import { Grid, BuildingType, WeatherType, DisasterType, ActiveDisaster } from '../types';
+import { Grid, BuildingType, WeatherType, DisasterType, ActiveDisaster, EconomicEvent } from '../types';
 import { GRID_SIZE, BUILDINGS } from '../constants';
+import { DetailedBuilding } from './DetailedBuilding';
 
 // Fix for TypeScript not recognizing R3F elements in JSX
 // This augmentation ensures both the legacy JSX and modern React.JSX namespaces are covered.
@@ -166,316 +166,204 @@ const SmokeStack = ({ position }: { position: [number, number, number] }) => {
   );
 };
 
-interface BuildingMeshProps {
-  type: BuildingType;
-  baseColor: string;
-  x: number;
-  y: number;
-  opacity?: number;
-  transparent?: boolean;
-}
+// --- 2. Ground System (Instanced) ---
+const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode }: {
+  grid: Grid,
+  onTileClick: (x: number, y: number) => void,
+  hoveredTile: { x: number, y: number } | null,
+  neonMode: boolean
+}) => {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const color = useMemo(() => new THREE.Color(), []);
 
-const ProceduralBuilding = React.memo(({ type, baseColor, x, y, opacity = 1, transparent = false }: BuildingMeshProps) => {
-  const hash = getHash(x, y);
-  const variant = Math.floor(hash * 100); // 0-99
-  const rotation = Math.floor(hash * 4) * (Math.PI / 2);
+  // Update effect
+  useEffect(() => {
+    if (!meshRef.current) return;
 
-  const color = useMemo(() => {
-    const c = new THREE.Color(baseColor);
-    c.offsetHSL(hash * 0.1 - 0.05, 0, hash * 0.2 - 0.1);
-    return c;
-  }, [baseColor, hash]);
+    let i = 0;
+    for (let y = 0; y < grid.length; y++) {
+      for (let x = 0; x < grid[y].length; x++) {
+        const tile = grid[y][x];
+        const [wx, _, wz] = gridToWorld(x, y);
 
-  const mainMat = useMemo(() => new THREE.MeshStandardMaterial({ color, flatShading: true, opacity, transparent, roughness: 0.8 }), [color, opacity, transparent]);
-  const accentMat = useMemo(() => new THREE.MeshStandardMaterial({ color: new THREE.Color(color).multiplyScalar(0.7), flatShading: true, opacity, transparent }), [color, opacity, transparent]);
-  const roofMat = useMemo(() => new THREE.MeshStandardMaterial({ color: new THREE.Color(color).multiplyScalar(0.5).offsetHSL(0, 0, -0.1), flatShading: true, opacity, transparent }), [color, opacity, transparent]);
+        // Position
+        dummy.position.set(wx, -0.5, wz);
+        dummy.updateMatrix();
+        meshRef.current.setMatrixAt(i, dummy.matrix);
 
-  const commonProps = { castShadow: true, receiveShadow: true };
-  const yOffset = -0.3;
-  const [wx, _, wz] = gridToWorld(x, y);
+        // Color Logic
+        let c = "#10b981"; // Default Grass
+        if (tile.buildingType === BuildingType.Water) c = "#3b82f6";
+        else if (tile.buildingType === BuildingType.Road) c = "#374151";
+        else if (tile.buildingType !== BuildingType.None) c = "#059669"; // Foundation
+
+        // Neon Mode Overrides
+        if (neonMode) {
+          if (tile.buildingType === BuildingType.None) c = (x + y) % 2 === 0 ? '#1e1b4b' : '#312e81';
+          else if (tile.buildingType === BuildingType.Road) c = "#000000";
+          else if (tile.buildingType === BuildingType.Water) c = "#06b6d4";
+          else c = "#4c1d95";
+        }
+
+        // Hover Highlight
+        const isHovered = hoveredTile?.x === x && hoveredTile?.y === y;
+        if (isHovered) c = "#67e8f9";
+
+        // Pollution Tint (if not neon)
+        if (!neonMode && tile.pollution && tile.pollution > 0) {
+          const f = Math.min(1, tile.pollution / 50);
+          const base = new THREE.Color(c);
+          base.lerp(new THREE.Color("#4b5563"), f * 0.8);
+          c = "#" + base.getHexString();
+        }
+
+        color.set(c);
+        meshRef.current.setColorAt(i, color);
+
+        i++;
+      }
+    }
+    meshRef.current.instanceMatrix.needsUpdate = true;
+    if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
+  }, [grid, hoveredTile, neonMode]); // Re-run when grid changes (ticks) or hover changes
+
+  // Handle Clicks via raycast logic if needed, OR we just use onPointerDown on the whole mesh
+  // But we need to know WHICH instance was clicked.
+  // R3F handles this: e.instanceId gives the index.
+
+  const handleClick = (e: ThreeElements['mesh']['onPointerDown']) => {
+    // @ts-ignore
+    const instanceId = e.instanceId;
+    if (instanceId !== undefined) {
+      // Reverse map index to X,Y
+      // i = y * width + x
+      // x = i % width
+      // y = floor(i / width)
+      const width = grid[0].length;
+      const x = instanceId % width;
+      const y = Math.floor(instanceId / width);
+      onTileClick(x, y);
+    }
+  };
 
   return (
-    <group rotation={[0, rotation, 0]} position={[wx, yOffset, wz]}>
-      {(() => {
-        switch (type) {
-          case BuildingType.Residential:
-            if (variant < 33) {
-              return (
-                <>
-                  <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.3, 0]} scale={[0.7, 0.6, 0.6]} />
-                  <mesh {...commonProps} material={roofMat} geometry={coneGeo} position={[0, 0.75, 0]} scale={[0.6, 0.4, 0.6]} rotation={[0, Math.PI / 4, 0]} />
-                  <WindowBlock position={[0.2, 0.3, 0.31]} scale={[0.15, 0.2, 0.05]} />
-                  <WindowBlock position={[-0.2, 0.3, 0.31]} scale={[0.15, 0.2, 0.05]} />
-                  <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0, 0.1, 0.32]} scale={[0.15, 0.2, 0.05]} />
-                </>
-              );
-            } else if (variant < 66) {
-              return (
-                <>
-                  <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[-0.1, 0.35, 0]} scale={[0.6, 0.7, 0.8]} />
-                  <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0.25, 0.25, 0.1]} scale={[0.4, 0.5, 0.6]} />
-                  <WindowBlock position={[-0.1, 0.5, 0.41]} scale={[0.4, 0.2, 0.05]} />
-                </>
-              );
-            } else {
-              return (
-                <>
-                  <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.5, 0]} scale={[0.5, 1, 0.6]} />
-                  <mesh {...commonProps} material={roofMat} geometry={boxGeo} position={[0, 1.05, 0]} scale={[0.55, 0.1, 0.65]} />
-                  <WindowBlock position={[0, 0.7, 0.31]} scale={[0.3, 0.2, 0.05]} />
-                  <WindowBlock position={[0, 0.3, 0.31]} scale={[0.3, 0.2, 0.05]} />
-                </>
-              );
-            }
-
-          case BuildingType.Commercial:
-            if (variant < 40) {
-              const height = 1.5 + hash * 1.5;
-              return (
-                <>
-                  <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, height / 2, 0]} scale={[0.7, height, 0.7]} />
-                  {Array.from({ length: Math.floor(height * 3) }).map((_, i) => (
-                    <WindowBlock key={i} position={[0, 0.2 + i * 0.3, 0]} scale={[0.72, 0.15, 0.72]} />
-                  ))}
-                  <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0, height + 0.1, 0]} scale={[0.5, 0.2, 0.5]} />
-                </>
-              );
-            } else if (variant < 70) {
-              return (
-                <>
-                  <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.4, 0]} scale={[0.9, 0.8, 0.8]} />
-                  <WindowBlock position={[0, 0.3, 0.41]} scale={[0.8, 0.4, 0.05]} />
-                  <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: hash > 0.5 ? '#ef4444' : '#3b82f6' })} geometry={boxGeo} position={[0, 0.55, 0.5]} scale={[0.9, 0.1, 0.2]} rotation={[Math.PI / 6, 0, 0]} />
-                </>
-              );
-            } else {
-              return (
-                <>
-                  <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[-0.2, 0.5, -0.2]} scale={[0.5, 1, 0.5]} />
-                  <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0.1, 0.3, 0.1]} scale={[0.7, 0.6, 0.7]} />
-                  <WindowBlock position={[0.1, 0.3, 0.46]} scale={[0.6, 0.3, 0.05]} />
-                  <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#9ca3af' })} geometry={boxGeo} position={[0.2, 0.65, 0.2]} scale={[0.2, 0.1, 0.2]} />
-                </>
-              )
-            }
-
-          case BuildingType.Industrial:
-            if (variant < 50) {
-              return (
-                <>
-                  <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.4, 0]} scale={[0.9, 0.8, 0.8]} />
-                  <mesh {...commonProps} material={roofMat} geometry={boxGeo} position={[-0.2, 0.9, 0]} scale={[0.4, 0.2, 0.8]} rotation={[0, 0, Math.PI / 4]} />
-                  <mesh {...commonProps} material={roofMat} geometry={boxGeo} position={[0.2, 0.9, 0]} scale={[0.4, 0.2, 0.8]} rotation={[0, 0, Math.PI / 4]} />
-                  <SmokeStack position={[0.3, 0.4, 0.3]} />
-                </>
-              );
-            } else {
-              return (
-                <>
-                  <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[-0.2, 0.3, 0]} scale={[0.5, 0.6, 0.9]} />
-                  <mesh {...commonProps} material={accentMat} geometry={cylinderGeo} position={[0.25, 0.4, -0.2]} scale={[0.2, 0.8, 0.2]} />
-                  <mesh {...commonProps} material={accentMat} geometry={cylinderGeo} position={[0.25, 0.4, 0.25]} scale={[0.2, 0.8, 0.2]} />
-                  <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#6b7280' })} geometry={boxGeo} position={[0.25, 0.7, 0]} scale={[0.05, 0.05, 0.5]} />
-                </>
-              );
-            }
-
-          case BuildingType.Park:
-            const treeCount = 1 + Math.floor(hash * 3);
-            const positions = [[-0.2, -0.2], [0.2, 0.2], [-0.2, 0.2], [0.2, -0.2]];
-
-            return (
-              <group position={[0, -yOffset - 0.29, 0]}>
-                <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
-                  <planeGeometry args={[0.9, 0.9]} />
-                  <meshStandardMaterial color="#86efac" />
-                </mesh>
-
-                {variant < 30 && (
-                  <group position={[0, 0.05, 0]}>
-                    <mesh material={new THREE.MeshStandardMaterial({ color: '#cbd5e1' })} geometry={cylinderGeo} scale={[0.4, 0.1, 0.4]} castShadow receiveShadow />
-                    <mesh material={new THREE.MeshStandardMaterial({ color: '#3b82f6', roughness: 0.1 })} geometry={cylinderGeo} position={[0, 0.06, 0]} scale={[0.3, 0.05, 0.3]} />
-                  </group>
-                )}
-
-                {Array.from({ length: treeCount }).map((_, i) => {
-                  const pos = positions[i % positions.length];
-                  const scale = 0.5 + getHash(x + i, y - i) * 0.5;
-                  const treeColor = new THREE.Color("#166534").offsetHSL(0, 0, getHash(x, y + i) * 0.2);
-                  return (
-                    <group key={i} position={[pos[0], 0, pos[1]]} scale={scale} rotation={[0, getHash(i, x) * Math.PI, 0]}>
-                      <mesh castShadow receiveShadow material={new THREE.MeshStandardMaterial({ color: '#78350f' })} geometry={cylinderGeo} position={[0, 0.15, 0]} scale={[0.1, 0.3, 0.1]} />
-                      <mesh castShadow receiveShadow material={new THREE.MeshStandardMaterial({ color: treeColor, flatShading: true })} geometry={coneGeo} position={[0, 0.4, 0]} scale={[0.4, 0.5, 0.4]} />
-                      <mesh castShadow receiveShadow material={new THREE.MeshStandardMaterial({ color: treeColor, flatShading: true })} geometry={coneGeo} position={[0, 0.65, 0]} scale={[0.3, 0.4, 0.3]} />
-                    </group>
-                  )
-                })}
-              </group>
-            );
-
-          case BuildingType.School:
-            return (
-              <>
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.4, 0]} scale={[0.9, 0.6, 0.7]} />
-                <mesh {...commonProps} material={roofMat} geometry={boxGeo} position={[0, 0.72, 0]} scale={[0.95, 0.1, 0.75]} />
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0.25, 0.8, 0.2]} scale={[0.25, 0.8, 0.25]} />
-                <mesh {...commonProps} material={roofMat} geometry={coneGeo} position={[0.25, 1.3, 0.2]} scale={[0.3, 0.4, 0.3]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#fbbf24', emissive: '#fbbf24', emissiveIntensity: 0.5 })} geometry={sphereGeo} position={[0.25, 1.1, 0.33]} scale={0.08} />
-                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[-0.1, 0.2, 0.36]} scale={[0.3, 0.4, 0.1]} />
-                <WindowBlock position={[-0.2, 0.4, 0.36]} scale={[0.2, 0.2, 0.05]} />
-                <WindowBlock position={[-0.2, 0.4, -0.36]} scale={[0.2, 0.2, 0.05]} />
-              </>
-            );
-
-          case BuildingType.Hospital:
-            return (
-              <>
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[-0.25, 0.6, 0]} scale={[0.3, 1.2, 0.8]} />
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0.25, 0.6, 0]} scale={[0.3, 1.2, 0.8]} />
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.6, 0]} scale={[0.3, 0.8, 0.4]} />
-                <mesh {...commonProps} material={roofMat} geometry={cylinderGeo} position={[-0.25, 1.21, 0]} scale={[0.25, 0.05, 0.25]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#ef4444' })} geometry={boxGeo} position={[-0.25, 1.22, 0]} scale={[0.15, 0.05, 0.15]} />
-                <WindowBlock position={[-0.25, 0.8, 0.41]} scale={[0.2, 0.4, 0.05]} />
-                <WindowBlock position={[0.25, 0.8, 0.41]} scale={[0.2, 0.4, 0.05]} />
-                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0, 0.15, 0.25]} scale={[0.4, 0.3, 0.3]} />
-              </>
-            );
-
-          case BuildingType.Casino:
-            return (
-              <>
-                {/* Main Building */}
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.4, 0]} scale={[0.9, 0.8, 0.9]} />
-                {/* Entrance Arch */}
-                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0, 0.6, 0.46]} scale={[0.6, 0.4, 0.05]} />
-                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[-0.2, 0.3, 0.46]} scale={[0.15, 0.2, 0.05]} />
-                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0.2, 0.3, 0.46]} scale={[0.15, 0.2, 0.05]} />
-                {/* Sign */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#fbbf24', emissive: '#fbbf24', emissiveIntensity: 1 })} geometry={boxGeo} position={[0, 0.9, 0.46]} scale={[0.5, 0.1, 0.05]} />
-                {/* Roof Details */}
-                <mesh {...commonProps} material={roofMat} geometry={cylinderGeo} position={[0, 0.85, 0]} scale={[0.7, 0.1, 0.7]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 0.8 })} geometry={sphereGeo} position={[0.3, 0.95, 0.3]} scale={0.1} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#3b82f6', emissive: '#3b82f6', emissiveIntensity: 0.8 })} geometry={sphereGeo} position={[-0.3, 0.95, -0.3]} scale={0.1} />
-              </>
-            );
-
-          case BuildingType.Police:
-            return (
-              <>
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.3, 0]} scale={[0.8, 0.6, 0.8]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#1e3a8a' })} geometry={boxGeo} position={[0.2, 0.7, -0.2]} scale={[0.3, 1.2, 0.3]} />
-                <WindowBlock position={[0.2, 0.9, -0.04]} scale={[0.2, 0.4, 0.05]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 2 })} geometry={boxGeo} position={[-0.2, 0.65, 0.3]} scale={[0.1, 0.1, 0.1]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#3b82f6', emissive: '#3b82f6', emissiveIntensity: 2 })} geometry={boxGeo} position={[0, 0.65, 0.3]} scale={[0.1, 0.1, 0.1]} />
-                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[-0.2, 0.2, 0.41]} scale={[0.3, 0.4, 0.05]} />
-              </>
-            );
-
-          case BuildingType.FireStation:
-            return (
-              <>
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.4, 0]} scale={[0.9, 0.8, 0.7]} />
-                {/* Garage Doors */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#7f1d1d' })} geometry={boxGeo} position={[-0.2, 0.25, 0.36]} scale={[0.25, 0.4, 0.05]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#7f1d1d' })} geometry={boxGeo} position={[0.2, 0.25, 0.36]} scale={[0.25, 0.4, 0.05]} />
-                {/* Tower */}
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0.3, 0.8, -0.2]} scale={[0.25, 0.6, 0.25]} />
-                <mesh {...commonProps} material={roofMat} geometry={coneGeo} position={[0.3, 1.2, -0.2]} scale={[0.3, 0.3, 0.3]} />
-                {/* Roof details */}
-                <mesh {...commonProps} material={roofMat} geometry={boxGeo} position={[0, 0.82, 0]} scale={[0.95, 0.05, 0.75]} />
-              </>
-            );
-
-          case BuildingType.GoldMine:
-            return (
-              <>
-                {/* Rocky Base */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#78350f', roughness: 0.9 })} geometry={cylinderGeo} position={[0, 0.2, 0]} scale={[0.9, 0.4, 0.9]} />
-                {/* Mine Shaft Entrance */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#27272a' })} geometry={boxGeo} position={[0, 0.3, 0.2]} scale={[0.4, 0.4, 0.4]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#52525b' })} geometry={boxGeo} position={[0, 0.5, 0.2]} scale={[0.5, 0.1, 0.5]} />
-                {/* Gold Veins */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#fbbf24', emissive: '#fbbf24', emissiveIntensity: 0.8 })} geometry={sphereGeo} position={[0.3, 0.2, -0.3]} scale={0.15} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#fbbf24', emissive: '#fbbf24', emissiveIntensity: 0.8 })} geometry={sphereGeo} position={[-0.3, 0.1, 0.1]} scale={0.12} />
-                {/* Crane/Pulley */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#475569' })} geometry={cylinderGeo} position={[-0.2, 0.6, -0.2]} scale={[0.05, 0.8, 0.05]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#475569' })} geometry={boxGeo} position={[-0.1, 1.0, -0.2]} scale={[0.3, 0.05, 0.05]} />
-              </>
-            );
-
-          case BuildingType.Apartment:
-            return (
-              <>
-                {/* Compact Block */}
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.4, 0]} scale={[0.7, 0.8, 0.7]} />
-                {/* Flat Roof */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#64748b' })} geometry={boxGeo} position={[0, 0.81, 0]} scale={[0.75, 0.05, 0.75]} />
-                {/* Balconies */}
-                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0.36, 0.3, 0]} scale={[0.1, 0.05, 0.4]} />
-                <mesh {...commonProps} material={accentMat} geometry={boxGeo} position={[0.36, 0.6, 0]} scale={[0.1, 0.05, 0.4]} />
-                <WindowBlock position={[0.36, 0.45, 0]} scale={[0.05, 0.2, 0.3]} />
-              </>
-            );
-
-          case BuildingType.Water:
-            return (
-              <mesh position={[0, 0.1, 0]}>
-                <boxGeometry args={[0.95, 0.4, 0.95]} />
-                <meshStandardMaterial color="#3b82f6" transparent opacity={0.8} roughness={0.1} />
-              </mesh>
-            );
-
-          case BuildingType.Bridge:
-            return (
-              <group position={[0, 0.55, 0]}>
-                {/* Deck */}
-                <mesh position={[0, 0, 0]}>
-                  <boxGeometry args={[0.95, 0.1, 0.95]} />
-                  <meshStandardMaterial color="#78350f" />
-                </mesh>
-                {/* Leg 1 */}
-                <mesh position={[-0.3, -0.35, -0.3]}>
-                  <boxGeometry args={[0.2, 0.5, 0.2]} />
-                  <meshStandardMaterial color="#555555" />
-                </mesh>
-                {/* Leg 2 */}
-                <mesh position={[0.3, -0.35, 0.3]}>
-                  <boxGeometry args={[0.2, 0.5, 0.2]} />
-                  <meshStandardMaterial color="#555555" />
-                </mesh>
-              </group>
-            );
-
-          case BuildingType.Mansion:
-            return (
-              <>
-                {/* Main Hall */}
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0, 0.4, 0]} scale={[0.6, 0.8, 0.6]} />
-                {/* Wings */}
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[-0.3, 0.3, 0]} scale={[0.4, 0.6, 0.5]} />
-                <mesh {...commonProps} material={mainMat} geometry={boxGeo} position={[0.3, 0.3, 0]} scale={[0.4, 0.6, 0.5]} />
-                {/* Roofs */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#581c87' })} geometry={coneGeo} position={[0, 1.0, 0]} scale={[0.5, 0.4, 0.5]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#581c87' })} geometry={boxGeo} position={[-0.3, 0.65, 0]} scale={[0.45, 0.1, 0.55]} />
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#581c87' })} geometry={boxGeo} position={[0.3, 0.65, 0]} scale={[0.45, 0.1, 0.55]} />
-                {/* Entrance Pillars */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#e2e8f0' })} geometry={cylinderGeo} position={[0, 0.2, 0.4]} scale={[0.05, 0.4, 0.05]} />
-                {/* Pool */}
-                <mesh {...commonProps} material={new THREE.MeshStandardMaterial({ color: '#0ea5e9', roughness: 0.1 })} geometry={boxGeo} position={[0, 0.05, -0.4]} scale={[0.4, 0.05, 0.3]} />
-              </>
-            );
-
-          case BuildingType.Road:
-            return null;
-          default:
-            return null;
-        }
-      })()}
-    </group>
+    <instancedMesh
+      ref={meshRef}
+      args={[undefined, undefined, grid.length * grid[0].length]}
+      onPointerDown={(e) => { e.stopPropagation(); handleClick(e); }}
+      receiveShadow
+    >
+      <boxGeometry args={[1, 0.2, 1]} />
+      <meshBasicMaterial />
+    </instancedMesh>
   );
-});
+};
 
-// --- 2. Dynamic Systems ---
+// --- 3. Building System (Instanced) ---
+const BuildingSystem = ({ grid, hoveredTile, neonMode, onTileClick }: {
+  grid: Grid,
+  hoveredTile: { x: number, y: number } | null,
+  neonMode: boolean,
+  onTileClick: (x: number, y: number) => void
+}) => {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const color = useMemo(() => new THREE.Color(), []);
+
+  useEffect(() => {
+    if (!meshRef.current) return;
+
+    let i = 0;
+    // We only instance "Standard" buildings. 3600 max.
+    // We update the full list every time (inefficient for large maps but safer than mapped components)
+    // Actually we need to match the index logic.
+    // InstancedMesh count is total tiles. We hide empty/non-building ones by scaling to 0.
+
+    for (let y = 0; y < grid.length; y++) {
+      for (let x = 0; x < grid[y].length; x++) {
+        const tile = grid[y][x];
+
+        // Skip map tiles that are NOT buildings or are Roads/Water (handled by Ground)
+        if (tile.buildingType === BuildingType.None || tile.buildingType === BuildingType.Road || tile.buildingType === BuildingType.Water) {
+          // Hide instance
+          dummy.position.set(0, -999, 0);
+          dummy.scale.set(0, 0, 0);
+          dummy.updateMatrix();
+          meshRef.current.setMatrixAt(i++, dummy.matrix);
+          continue;
+        }
+
+        const [wx, _, wz] = gridToWorld(x, y);
+        const config = BUILDINGS[tile.buildingType];
+
+        // Scale/Shape Logic
+        let sx = 0.8, sy = 0.8, sz = 0.8;
+        let py = 0; // base y
+
+        if (tile.buildingType === BuildingType.Commercial) { sy = 1.5; }
+        if (tile.buildingType === BuildingType.Industrial) { sx = 0.9; sz = 0.9; sy = 0.6; }
+        if (tile.buildingType === BuildingType.Apartment) { sy = 1.2; }
+        if (tile.buildingType === BuildingType.MegaMall) { sx = 0.9; sz = 0.9; sy = 0.5; }
+        if (tile.buildingType === BuildingType.SpacePort) { sy = 2.0; sx = 0.5; sz = 0.5; } // Rocket-ish
+
+        dummy.position.set(wx, py + sy / 2 - 0.3, wz); // Adjust y so it sits on ground
+        dummy.scale.set(sx, sy, sz);
+        dummy.updateMatrix();
+        meshRef.current.setMatrixAt(i, dummy.matrix);
+
+        // Color Logic
+        let c = config ? config.color : '#ffffff';
+        if (neonMode) c = '#333333'; // simplified neon
+
+        // Hover Highlight
+        const isHovered = hoveredTile?.x === x && hoveredTile?.y === y;
+        if (isHovered) c = "#ffffff";
+
+        // Road Access warning (red blink)
+        if (tile.hasRoadAccess === false && !isHovered) {
+          // Just tint red
+          c = "#ef4444";
+        }
+
+        color.set(c);
+        meshRef.current.setColorAt(i, color);
+
+        i++;
+      }
+    }
+    meshRef.current.instanceMatrix.needsUpdate = true;
+    if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
+  }, [grid, hoveredTile, neonMode]);
+
+  // Handle Clicks on Buildings (for Demolish or Upgrade info)
+  const handleClick = (e: ThreeElements['mesh']['onPointerDown']) => {
+    // @ts-ignore
+    const instanceId = e.instanceId;
+    if (instanceId !== undefined) {
+      // Reverse map index to X,Y
+      const width = grid[0].length;
+      const x = instanceId % width;
+      const y = Math.floor(instanceId / width);
+      onTileClick(x, y);
+    }
+  };
+
+  return (
+    <instancedMesh
+      ref={meshRef}
+      args={[undefined, undefined, grid.length * grid[0].length]}
+      onPointerDown={(e) => { e.stopPropagation(); handleClick(e); }}
+      castShadow
+      receiveShadow
+    >
+      <boxGeometry args={[1, 1, 1]} />
+      <meshBasicMaterial />
+    </instancedMesh>
+  );
+};
+
+// --- 4. Dynamic Systems ---
 
 const carColors = ['#ef4444', '#3b82f6', '#eab308', '#ffffff', '#1f2937', '#f97316'];
 
@@ -883,38 +771,6 @@ const BoatSystem = ({ grid }: { grid: Grid }) => {
     const time = state.clock.elapsedTime;
 
     for (let i = 0; i < boatCount; i++) {
-      // ... (Omitting inner loop details for brevity as I am just anchoring, but replace_file_content needs context)
-      // Wait, I can't omit. I need to match EXACTLY.
-      // I will use `insert after` logic? No, only replace.
-      // I will try to find a safe insertion point. 
-      // End of BoatSystem is easier?
-    }
-    // ...
-  });
-  // This is too hard to match exactly inside the function.
-  // I will append AFTER BoatSystem.
-
-  if (boatCount === 0) return null; // Wait, BoatSystem ends around line 830?
-  // Let's look at the file end of BoatSystem
-  // It ends with:
-  //   return (
-  //     <instancedMesh ref={boatsRef} args={[boxGeo, undefined, boatCount]} castShadow>
-  //       <meshStandardMaterial roughness={0.1} />
-  //     </instancedMesh>
-  //   );
-  // };
-
-  // I will check line 838 or so.
-
-  // Actually, I'll just look for the END of BoatSystem and insert PollutionSystem after it.
-
-  useFrame((state) => {
-    if (!boatsRef.current || waterTiles.length < 2 || boatsState.current.length === 0) return;
-
-    // Bobbing animation
-    const time = state.clock.elapsedTime;
-
-    for (let i = 0; i < boatCount; i++) {
       const idx = i * 6;
       let curX = boatsState.current[idx];
       let curY = boatsState.current[idx + 1];
@@ -976,6 +832,53 @@ const BoatSystem = ({ grid }: { grid: Grid }) => {
         <meshStandardMaterial roughness={0.1} color="#cbd5e1" />
       </instancedMesh>
     </group>
+  );
+};
+
+// --- FESTIVAL SYSTEM ---
+const FestivalSystem = ({ activeEvent }: { activeEvent: EconomicEvent }) => {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const particleCount = 200;
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+
+  // Initialize random positions for confetti
+  const particles = useMemo(() => {
+    return new Array(particleCount).fill(0).map(() => ({
+      x: Math.random() * GRID_SIZE - GRID_SIZE / 2,
+      y: Math.random() * 20 + 5, // Start high
+      z: Math.random() * GRID_SIZE - GRID_SIZE / 2,
+      speed: Math.random() * 0.2 + 0.1,
+      color: new THREE.Color().setHSL(Math.random(), 1, 0.5),
+      rotationSpeed: Math.random() * 0.1
+    }));
+  }, []);
+
+  useFrame(() => {
+    if (!meshRef.current || activeEvent !== EconomicEvent.Festival) return;
+
+    particles.forEach((p, i) => {
+      p.y -= p.speed;
+      if (p.y < 0) p.y = 25; // Reset to top
+
+      dummy.position.set(p.x, p.y, p.z);
+      dummy.rotation.x += p.rotationSpeed;
+      dummy.rotation.y += p.rotationSpeed;
+      dummy.scale.set(0.3, 0.3, 0.3);
+      dummy.updateMatrix();
+      meshRef.current!.setMatrixAt(i, dummy.matrix);
+      meshRef.current!.setColorAt(i, p.color);
+    });
+    meshRef.current.instanceMatrix.needsUpdate = true;
+    if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
+  });
+
+  if (activeEvent !== EconomicEvent.Festival) return null;
+
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, particleCount]}>
+      <planeGeometry args={[0.5, 0.5]} />
+      <meshBasicMaterial side={THREE.DoubleSide} vertexColors />
+    </instancedMesh>
   );
 };
 
@@ -1206,70 +1109,7 @@ interface GroundTileProps {
   neonMode?: boolean;
 }
 
-const GroundTile = React.memo(({ type, x, y, grid, onHover, onLeave, onClick, neonMode }: GroundTileProps) => {
-  const [wx, _, wz] = gridToWorld(x, y);
-  let color = '#10b981';
-  let topY = -0.3;
-  let thickness = 0.5;
 
-  if (neonMode) {
-    // CYBERPUNK TERRAIN
-    if (type === BuildingType.None) {
-      // Dark grid
-      color = (x + y) % 2 === 0 ? '#1e1b4b' : '#312e81'; // Indigo-950/900
-      topY = -0.3;
-    } else if (type === BuildingType.Road) {
-      color = '#000000';
-      topY = -0.29;
-    } else if (type === BuildingType.Water || type === BuildingType.Bridge) {
-      color = '#06b6d4'; // Cyan-500 Glowing
-      topY = -0.6;
-    } else {
-      color = '#4c1d95'; // Violet-900 (Under building)
-      topY = -0.28;
-    }
-  } else {
-    if (type === BuildingType.None) {
-      const noise = getHash(x, y);
-      color = noise > 0.7 ? '#059669' : noise > 0.3 ? '#10b981' : '#34d399';
-      topY = -0.3 - noise * 0.1;
-    } else if (type === BuildingType.Road) {
-      color = '#4b5563'; // Gray-600
-      topY = -0.29;
-    } else if (type === BuildingType.Water || type === BuildingType.Bridge) {
-      color = '#3b82f6'; // Blue-500
-      topY = -0.6; // Deep seabed
-    } else {
-      // Softer Greens (Pastel/Emerald)
-      const noise = getHash(x, y);
-      color = noise > 0.7 ? '#6ee7b7' : noise > 0.3 ? '#86efac' : '#a7f3d0'; // Emerald-300 to Green-200
-      topY = -0.28;
-    }
-  }
-  const centerY = topY - thickness / 2;
-  return (
-    <mesh
-      position={[wx, centerY, wz]}
-      receiveShadow castShadow
-      onPointerEnter={(e) => { e.stopPropagation(); onHover(x, y); }}
-      onPointerOut={(e) => { e.stopPropagation(); onLeave(); }}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        if (e.button === 0) onClick(x, y);
-      }}
-    >
-      <boxGeometry args={[1, thickness, 1]} />
-      <meshStandardMaterial
-        color={color}
-        flatShading
-        roughness={neonMode && type !== BuildingType.None ? 0.2 : 1}
-        emissive={neonMode && type === BuildingType.Water ? "#06b6d4" : undefined}
-        emissiveIntensity={neonMode && type === BuildingType.Water ? 0.5 : 0}
-      />
-      {type === BuildingType.Road && <RoadMarkings x={x} y={y} grid={grid} yOffset={thickness / 2 + 0.001} />}
-    </mesh>
-  );
-});
 
 const Cursor = ({ x, y, color }: { x: number, y: number, color: string }) => {
   const [wx, _, wz] = gridToWorld(x, y);
@@ -1294,9 +1134,10 @@ interface IsoMapProps {
   crimeRate: number;
   pollutionLevel: number;
   windDirection?: { x: number, y: number };
+  activeEvent?: EconomicEvent;
 }
 
-const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, population, day = 1, neonMode = false, weather, activeDisaster, crimeRate, pollutionLevel, windDirection }) => {
+const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, population, day = 1, neonMode = false, weather, activeDisaster, crimeRate, pollutionLevel, windDirection, activeEvent }) => {
   const [hoveredTile, setHoveredTile] = useState<{ x: number, y: number } | null>(null);
   const handleHover = useCallback((x: number, y: number) => { setHoveredTile({ x, y }); }, []);
   const handleLeave = useCallback(() => { setHoveredTile(null); }, []);
@@ -1314,66 +1155,88 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, populat
       >
         <OrthographicCamera makeDefault zoom={45} position={[20, 20, 20]} near={-100} far={200} />
         <MapControls
-          enableRotate={true}
-          enableZoom={true}
-          minZoom={20}
-          maxZoom={120}
-          maxPolarAngle={Math.PI / 2.2}
-          minPolarAngle={0.1}
-          target={[0, -0.5, 0]}
+          makeDefault
+          enableZoom={true} // Explicitly true
+          enablePan={true}
+          enableRotate={false} // Isometric view locked
+          minZoom={10}
+          maxZoom={100}
+          dampingFactor={0.05}
         />
-        <ambientLight intensity={0.5} color="#cceeff" />
+        <ambientLight intensity={0.8} color="#cceeff" />
         <directionalLight
-          castShadow
           position={[15, 20, 10]}
-          intensity={2}
+          intensity={1.5}
           color="#fffbeb"
-          shadow-mapSize={[1024, 1024]}
-          shadow-camera-left={-15} shadow-camera-right={15}
-          shadow-camera-top={15} shadow-camera-bottom={-15}
-          shadow-bias={-0.0005}
+        // Shadows DISABLED for stability
+        // castShadow
+        // shadow-mapSize={[1024, 1024]}
         />
-        <Environment preset="city" />
-        <DayNightCycle day={day} neonMode={neonMode} weather={weather} activeDisaster={activeDisaster} />
+        {/* <Environment preset="city" /> - DISABLED */}
+        {/* LIGHT SYSTEMS DISABLED */}
+        {/* <DayNightCycle day={day} neonMode={neonMode} weather={weather} activeDisaster={activeDisaster} /> */}
         <group>
-          {grid.map((row, y) => row.map((tile, x) => {
-            return (
-              <React.Fragment key={`${x}-${y}`}>
-                <GroundTile type={tile.buildingType} x={x} y={y} grid={grid} onHover={handleHover} onLeave={handleLeave} onClick={onTileClick} neonMode={neonMode} />
-              </React.Fragment>
-            )
-          }))}
+          <GroundSystem
+            grid={grid}
+            onTileClick={(x, y) => onTileClick(x, y)}
+            hoveredTile={hoveredTile}
+            neonMode={neonMode}
+          />
 
-          {/* Buildings */}
-          {grid.map(row => row.map(tile => {
-            // Render everything except None, Road, and Water (Water is flat tile only for now, unless we want 3D water)
-            if (tile.buildingType !== BuildingType.None && tile.buildingType !== BuildingType.Road && tile.buildingType !== BuildingType.Water) {
-              const config = BUILDINGS[tile.buildingType];
-              // Neon Logic: Switch to dark colors if mode on
-              const startColor = neonMode ? '#1e293b' : (config ? config.color : '#888888'); // Fallback color
-              return (
-                <ProceduralBuilding
-                  key={`b-${tile.x}-${tile.y}`}
-                  type={tile.buildingType}
-                  baseColor={startColor}
-                  x={tile.x}
-                  y={tile.y}
-                />
-              );
-            }
-            return null;
-          }))}
+          {/* Toggle for Quality vs Performance. Setting to TRUE (Quality) by default as requested. */}
+          {/* Use Instanced BuildingSystem for Roads/Water/Empty? No, BuildingSystem only does Buildings. */}
+          {/* DetailedBuilding loop for buildings. */}
+          
+          {true ? (
+            // Quality Mode: Render individual detailed components
+            grid.map((row) => row.map((tile) => {
+               if (tile.buildingType === BuildingType.None || tile.buildingType === BuildingType.Road || tile.buildingType === BuildingType.Water) return null;
+               const [wx, _, wz] = gridToWorld(tile.x, tile.y);
+               const config = BUILDINGS[tile.buildingType];
+               return (
+                 <DetailedBuilding
+                   key={tile.x + '-' + tile.y}
+                   type={tile.buildingType}
+                   baseColor={config.color}
+                   heightVar={1.0}
+                   rotation={0}
+                   hasRoadAccess={tile.hasRoadAccess}
+                   isHovered={hoveredTile?.x === tile.x && hoveredTile?.y === tile.y}
+                   position={[wx, -0.5, wz]} // Align with GroundSystem
+                   onClick={() => onTileClick(tile.x, tile.y)}
+                 />
+               );
+            }))
+          ) : (
+             // Performance Mode: Instanced
+             <BuildingSystem
+                grid={grid}
+                hoveredTile={hoveredTile}
+                neonMode={neonMode}
+                onTileClick={onTileClick}
+             />
+          )}
 
-          <EnvironmentEffects weather={weather} />
-          <DisasterManager activeDisaster={activeDisaster} />
-          <TrafficSystem grid={grid} crimeRate={crimeRate} />
-          <BoatSystem grid={grid} />
-          <PollutionSystem grid={grid} windDirection={windDirection || { x: 1, y: 0 }} />
-          <PopulationSystem population={population} grid={grid} />
+          {/* Buildings (Legacy Loop Removed) */}
+          {/* {grid.map((row, y) => row.map((tile, x) => ... ))} */}
+
+          {/* HEAVY SYSTEMS DISABLED TEMPORARILY */}
+          {/* <EnvironmentEffects weather={weather} /> */}
+          {/* <DisasterManager activeDisaster={activeDisaster} /> */}
+          {/* <TrafficSystem grid={grid} crimeRate={crimeRate} /> */}
+          {/* <BoatSystem grid={grid} /> */}
+          {/* <PollutionSystem grid={grid} windDirection={windDirection || { x: 1, y: 0 }} /> */}
+          {/* <FestivalSystem activeEvent={activeEvent || EconomicEvent.None} /> */}
+          {/* <PopulationSystem population={population} grid={grid} /> */}
+
           {showPreview && hoveredTile && (
             <group position={[previewPos[0], 0, previewPos[2]]}>
               <Float speed={3} rotationIntensity={0} floatIntensity={0.1} floatingRange={[0, 0.1]}>
-                <ProceduralBuilding type={hoveredTool} baseColor={previewColor} x={hoveredTile.x} y={hoveredTile.y} transparent opacity={0.7} />
+                {/* Simplified Preview Ghost */}
+                <mesh>
+                  <boxGeometry args={[0.8, 1, 0.8]} />
+                  <meshBasicMaterial color={previewColor} transparent opacity={0.5} />
+                </mesh>
               </Float>
             </group>
           )}
@@ -1382,7 +1245,7 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, populat
           )}
         </group>
       </Canvas>
-    </div>
+    </div >
   );
 };
 
