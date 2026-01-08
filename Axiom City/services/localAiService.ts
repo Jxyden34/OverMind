@@ -50,7 +50,7 @@ const callLocalAI = async (prompt: string, systemPrompt: string = "You are a hel
             logToFile(`Sending request to: ${API_URL}/chat/completions (Attempt ${i + 1})`);
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout for responsiveness
+            const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout for Gemma
 
             const response = await fetch(`${API_URL}/chat/completions`, {
                 method: 'POST',
@@ -59,7 +59,7 @@ const callLocalAI = async (prompt: string, systemPrompt: string = "You are a hel
                     'Authorization': `Bearer ${API_KEY}`
                 },
                 body: JSON.stringify({
-                    model: "gemma3:27b", // Updated to likely available model
+                    model: "gemma3:27b", // Restored Gemma 3
                     messages: [
                         { role: "system", content: systemPrompt },
                         { role: "user", content: prompt }
@@ -257,6 +257,9 @@ export const generateGameAction = async (stats: CityStats, grid: Grid, recentFai
         crimeRate: stats.crimeRate,
         security: stats.security,
         pollution: stats.pollutionLevel,
+        happiness: stats.happiness,
+        education: stats.education,
+        safety: stats.safety,
         budget: stats.budget,
         profit: stats.budget.lastMonthProfit,
         buildings: buildingCounts,
@@ -361,8 +364,7 @@ Financial Status: Profit ${context.profit} (${context.profit < 0 ? 'DEFICIT' : '
 **PRIMARY DIRECTIVE**: ${priorityDirective}
 **SOLVENCY STATE**: ${stats.money > 0 ? "SOLVENT (Funds Available)" : "BANKRUPT (Critical Debt)"} - Do not hallucinate bankruptcy if Solvent.
 **BALANCE HEURISTIC**:
-- If Jobs >= Population: **STOP BUILDING JOBS**. Build **RESIDENTIAL** (Housing). We have enough jobs!
-- If Population > Jobs: **BUILD COMMERCIAL/INDUSTRIAL**. You need jobs!
+
 - If Population > 100: **BUILD Hospitals**. Keep them healthy!
 - If Pollution > 50: **BUILD PARKS**. Clean the air!
 - If Education < 20: **BUILD SCHOOLS**. People need to learn!
@@ -373,6 +375,8 @@ Financial Status: Profit ${context.profit} (${context.profit < 0 ? 'DEFICIT' : '
 - If Happiness < 60: **BUILD STADIUM**. Entertain them!
 - If Happiness > 40: **BUILD CASINO**. High risk, high fun!
 - If Happiness > 60: **BUILD MEGA MALL**. Ultimate consumerism!
+- If Jobs >= Population: **STOP BUILDING JOBS**. Build **RESIDENTIAL** (Housing). We have enough jobs!
+- If Population > Jobs: **BUILD JOBS**. You need jobs!
 
 
 **AVAILABLE MOVES**:

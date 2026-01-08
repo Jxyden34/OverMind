@@ -212,10 +212,10 @@ function App() {
 
   const fetchNews = useCallback(async () => {
     // chance to fetch news per tick
-    if (!aiEnabledRef.current || Math.random() > 0.15) return;
+    if (!aiEnabledRef.current || Math.random() > 0.15) return; // Back to 15% (approx every 20s)
 
     // 5% chance to trigger WEIRD STUFF instead of news
-    if (Math.random() < 0.05) {
+    if (Math.random() < 0.20) {
       handleTriggerWeirdEvent();
       return;
     }
@@ -518,8 +518,8 @@ function App() {
 
       // Disaster Check (Simulating simple probabilty per tick if money < 0)
       if (statsRef.current.money < 0) {
-        // Higher chance if more debt? Fixed 15% chance per tick for now.
-        if (Math.random() < 0.15) {
+        // Higher chance if more debt? Fixed 2% chance per tick for now.
+        if (Math.random() < 0.02) {
           triggerDisaster();
         }
       }
@@ -530,8 +530,8 @@ function App() {
       // Trigger news
       fetchNews();
 
-      // Weather Cycle (Random change every ~25 ticks)
-      if (Math.random() < 0.04) {
+      // Weather Cycle (Random change every ~300 ticks / 15 mins)
+      if (Math.random() < 0.003) {
         const weathers = [
           WeatherType.Clear, WeatherType.Clear, WeatherType.Clear,
           WeatherType.Rain, WeatherType.Thunderstorm,
