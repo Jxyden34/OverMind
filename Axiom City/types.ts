@@ -26,7 +26,8 @@ export enum BuildingType {
   SpacePort = 'SpacePort',
   University = 'University',
   Stadium = 'Stadium',
-  Casino = 'Casino'
+  Casino = 'Casino',
+  ResearchCentre = 'ResearchCentre'
 }
 
 export enum EconomicEvent {
@@ -36,6 +37,7 @@ export enum EconomicEvent {
   Strike = 'STRIKE', // No commercial/industrial income
   Audit = 'AUDIT', // One-time fine, frozen accounts?
   Festival = 'FESTIVAL', // Happiness boost, cost money
+  Exodus = 'EXODUS', // People leaving
 }
 
 export enum WeatherType {
@@ -132,6 +134,15 @@ export interface CityStats {
   pollutionLevel: number; // Global average or max?
   windDirection: { x: number, y: number }; // Normalized vector
   windSpeed: number; // 0-1 (calm to strom)
+
+  research: {
+    landExpansionLevel: number; // 0 = 25x25 (or default), 1 = 35x35, etc.
+    isResearchCentreBuilt: boolean;
+    isMarsDiscovered: boolean;
+    nauticalLevel: number; // 0 = None, 1 = Basic, 2 = Advanced
+  };
+  activePlanet: 'Earth' | 'Mars';
+  unlockedGridSize: number; // The actual playable bounds (e.g. 25, 35, 45)
 
   currentGoal: AIGoal | null;
 }

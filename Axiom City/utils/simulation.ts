@@ -2,7 +2,7 @@ import { CityStats, Grid, BuildingType, EconomicEvent, WeatherType } from '../ty
 import { BUILDINGS } from '../constants';
 
 export const INITIAL_STATS: CityStats = {
-    money: 2000,
+    money: 5000,
     population: 0,
     day: 1,
     taxRate: 0.1, // 10%
@@ -43,6 +43,14 @@ export const INITIAL_STATS: CityStats = {
     crimeRate: 0,
     security: 100,
     pollutionLevel: 0,
+    research: {
+        landExpansionLevel: 0,
+        isResearchCentreBuilt: false,
+        isMarsDiscovered: false,
+        nauticalLevel: 0
+    },
+    activePlanet: 'Earth',
+    unlockedGridSize: 25, // Start with a smaller playable area (25x25 center)
     windDirection: { x: 1, y: 0 }, // Default East wind
     windSpeed: 0.5,
     currentGoal: null
@@ -130,6 +138,16 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid, weather?: 
                 // WEATHER PENALTY: Snow (Slowdown)
                 if (isSnowing && income > 0) {
                     income = Math.floor(income * weatherIncomeMult);
+                }
+
+                // RESEARCH BOOST: Nautical Logistics
+                if (income > 0 && newStats.research.nauticalLevel > 0) {
+                    income = Math.floor(income * 1.15); // +15% Boost
+                }
+
+                // PLANET PENALTY: Mars Harshness
+                if (newStats.activePlanet === 'Mars' && income > 0) {
+                    income = Math.floor(income * 0.8); // 20% harsher environment
                 }
 
                 // WEATHER DAMAGE: Acid Rain (Corrosion Costs)
@@ -240,10 +258,18 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid, weather?: 
 
         // Immigration
         if (totalPop < 50) {
-            newStats.demographics.adults += 2;
-        } else if (totalPop < housingCapacity * 0.5) {
-            newStats.demographics.adults += 1;
+            newStats.demographics.adults += 2; // Small base immigration for tiny cities
         }
+    }
+
+    // ------------------------------------
+    // EXODUS EVENT (Population Drain)
+    // ------------------------------------
+    if (incrementDay && newStats.activeEvent === EconomicEvent.Exodus) {
+        const drainPercent = 0.05; // 5% leave per day
+        newStats.demographics.children = Math.max(0, Math.floor(newStats.demographics.children * (1 - drainPercent)));
+        newStats.demographics.adults = Math.max(1, Math.floor(newStats.demographics.adults * (1 - drainPercent)));
+        newStats.demographics.seniors = Math.max(0, Math.floor(newStats.demographics.seniors * (1 - drainPercent)));
     }
 
     // Aging - DAILY ONLY

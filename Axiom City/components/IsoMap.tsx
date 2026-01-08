@@ -33,7 +33,7 @@ const getHash = (x: number, y: number) => Math.abs(Math.sin(x * 12.9898 + y * 78
 const getRandomRange = (min: number, max: number) => Math.random() * (max - min) + min;
 
 // --- Day/Night Cycle ---
-const DayNightCycle = ({ day, neonMode, weather, activeDisaster }: { day: number, neonMode: boolean, weather: WeatherType, activeDisaster: ActiveDisaster | null }) => {
+const DayNightCycle = ({ day, neonMode, weather, activeDisaster, planet = 'Earth' }: { day: number, neonMode: boolean, weather: WeatherType, activeDisaster: ActiveDisaster | null, planet?: 'Earth' | 'Mars' }) => {
   const directionalLightRef = useRef<THREE.DirectionalLight>(null);
   const ambientLightRef = useRef<THREE.AmbientLight>(null);
 
@@ -48,7 +48,20 @@ const DayNightCycle = ({ day, neonMode, weather, activeDisaster }: { day: number
         directionalLightRef.current.position.set(10, 15, 10);
         directionalLightRef.current.intensity = 0.8;
         directionalLightRef.current.color.setHex(0xa855f7); // Purple light
+      } else if (planet === 'Mars') {
+        // MARS CYCLE
+        directionalLightRef.current.position.set(15 * cos, 20 * sin, 10 * cos);
+        const isNight = sin < 0;
+
+        if (isNight) {
+          directionalLightRef.current.intensity = 0.2;
+          directionalLightRef.current.color.setHex(0x3b0764); // Dark Purple Night
+        } else {
+          directionalLightRef.current.intensity = 1.2;
+          directionalLightRef.current.color.setHex(0xfdba74); // Orange Sunlight
+        }
       } else {
+        // EARTH CYCLE
         directionalLightRef.current.position.set(15 * cos, 20 * sin, 10 * cos);
 
         const isNight = sin < 0;
@@ -84,25 +97,56 @@ const DayNightCycle = ({ day, neonMode, weather, activeDisaster }: { day: number
     }
 
     if (ambientLightRef.current) {
-      let ambIntensity = sin > 0 ? 0.6 : 0.2;
-      if (weather === WeatherType.Rain || weather === WeatherType.Snow) ambIntensity -= 0.1;
+      if (planet === 'Mars' && !neonMode) {
+        ambientLightRef.current.intensity = 0.5;
+        // Reddish ambient
+        ambientLightRef.current.color.setHex(0x7c2d12);
+      } else {
+        let ambIntensity = sin > 0 ? 0.6 : 0.2;
+        if (weather === WeatherType.Rain || weather === WeatherType.Snow) ambIntensity -= 0.1;
 
-      // Solar Flare Ambient
-      if (activeDisaster?.type === DisasterType.SolarFlare) ambIntensity = 1.0;
+        // Solar Flare Ambient
+        if (activeDisaster?.type === DisasterType.SolarFlare) ambIntensity = 1.0;
 
-      ambientLightRef.current.intensity = neonMode ? 0.3 : ambIntensity;
+        ambientLightRef.current.intensity = neonMode ? 0.3 : ambIntensity;
+        ambientLightRef.current.color.set(neonMode ? "#2e1065" : "#cceeff");
+      }
     }
   });
 
+  const initialAmbientColor = useMemo(() => {
+    if (neonMode) return "#2e1065";
+    if (planet === 'Mars') return "#7c2d12";
+    return "#cceeff";
+  }, [neonMode, planet]);
+
+  const initialAmbientIntensity = useMemo(() => {
+    if (neonMode) return 0.3;
+    if (planet === 'Mars') return 0.5;
+    return 0.5; // Default Earth day intensity
+  }, [neonMode, planet]);
+
+  const initialDirectionalColor = useMemo(() => {
+    if (neonMode) return "#a855f7";
+    if (planet === 'Mars') return "#fdba74";
+    return "#fffbeb";
+  }, [neonMode, planet]);
+
+  const initialDirectionalIntensity = useMemo(() => {
+    if (neonMode) return 0.8;
+    if (planet === 'Mars') return 1.2;
+    return 2; // Default Earth day intensity
+  }, [neonMode, planet]);
+
   return (
     <>
-      <ambientLight ref={ambientLightRef} intensity={neonMode ? 0.3 : 0.5} color={neonMode ? "#2e1065" : "#cceeff"} />
+      <ambientLight ref={ambientLightRef} intensity={initialAmbientIntensity} color={initialAmbientColor} />
       <directionalLight
         ref={directionalLightRef}
         castShadow
         position={[15, 20, 10]}
-        intensity={2}
-        color="#fffbeb"
+        intensity={initialDirectionalIntensity}
+        color={initialDirectionalColor}
         shadow-mapSize={[1024, 1024]}
         shadow-camera-left={-15} shadow-camera-right={15}
         shadow-camera-top={15} shadow-camera-bottom={-15}
@@ -167,12 +211,13 @@ const SmokeStack = ({ position }: { position: [number, number, number] }) => {
 };
 
 // --- 2. Ground System (Instanced) ---
-const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode, weather }: {
+const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode, weather, planet }: {
   grid: Grid,
   onTileClick: (x: number, y: number) => void,
   hoveredTile: { x: number, y: number } | null,
   neonMode: boolean,
-  weather: WeatherType
+  weather: WeatherType,
+  planet: 'Earth' | 'Mars'
 }) => {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -193,17 +238,32 @@ const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode, weather }: {
         dummy.updateMatrix();
         meshRef.current.setMatrixAt(i, dummy.matrix);
 
-        // Color Logic
+        // --- EARTH PALETTE ---
         let c = "#10b981"; // Default Grass
-        if (tile.buildingType === BuildingType.Water) c = "#3b82f6";
-        else if (tile.buildingType === BuildingType.Road) c = "#374151";
-        else if (tile.buildingType !== BuildingType.None) c = "#059669"; // Foundation
+        let waterC = "#3b82f6";
+        let roadC = "#374151";
+
+        // --- MARS PALETTE ---
+        if (planet === 'Mars') {
+          c = "#9a3412"; // Red Sand (Orange-800)
+          waterC = "#0ea5e9"; // Cyan Ice/Water
+          roadC = "#78350f"; // Amber-900 (Dusty Road)
+        }
+
+        if (tile.buildingType === BuildingType.Water) c = waterC;
+        else if (tile.buildingType === BuildingType.Road) c = roadC;
+        else if (tile.buildingType !== BuildingType.None) c = planet === 'Mars' ? "#b45309" : "#059669"; // Foundation shade
 
         // WEATHER EFFECTS
         if (weather === WeatherType.Snow) {
           if (tile.buildingType === BuildingType.None) c = "#e2e8f0"; // White Snow
           if (tile.buildingType === BuildingType.Road) c = "#94a3b8"; // Slushy Road
           if (tile.buildingType === BuildingType.Water) c = "#bfdbfe"; // Icy Water
+
+          if (planet === 'Mars') {
+            // Dry Ice Snow
+            if (tile.buildingType === BuildingType.None) c = "#fecaca"; // RedTint Snow
+          }
         }
         else if (weather === WeatherType.AcidRain) {
           // Sickly Tint
@@ -212,7 +272,9 @@ const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode, weather }: {
         }
         else if (weather === WeatherType.Rain) {
           // Darker wet look
-          if (tile.buildingType === BuildingType.None) c = "#065f46";
+          if (tile.buildingType === BuildingType.None) {
+            c = planet === 'Mars' ? "#7c2d12" : "#065f46";
+          }
           if (tile.buildingType === BuildingType.Road) c = "#1f2937";
         }
 
@@ -244,7 +306,7 @@ const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode, weather }: {
     }
     meshRef.current.instanceMatrix.needsUpdate = true;
     if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
-  }, [grid, hoveredTile, neonMode, weather]); // Re-run when grid changes (ticks) or hover changes
+  }, [grid, hoveredTile, neonMode, weather, planet]); // Re-run when grid changes (ticks) or hover changes
 
   // Handle Clicks via raycast logic if needed, OR we just use onPointerDown on the whole mesh
   // But we need to know WHICH instance was clicked.
@@ -1153,9 +1215,10 @@ interface IsoMapProps {
   pollutionLevel: number;
   windDirection?: { x: number, y: number };
   activeEvent?: EconomicEvent;
+  planet?: 'Earth' | 'Mars';
 }
 
-const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, population, day = 1, neonMode = false, weather, activeDisaster, crimeRate, pollutionLevel, windDirection, activeEvent }) => {
+const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, population, day = 1, neonMode = false, weather, activeDisaster, crimeRate, pollutionLevel, windDirection, activeEvent, planet = 'Earth' }) => {
   const [hoveredTile, setHoveredTile] = useState<{ x: number, y: number } | null>(null);
   const handleHover = useCallback((x: number, y: number) => { setHoveredTile({ x, y }); }, []);
   const handleLeave = useCallback(() => { setHoveredTile(null); }, []);
@@ -1181,24 +1244,15 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, populat
           maxZoom={100}
           dampingFactor={0.05}
         />
-        <ambientLight intensity={0.8} color="#cceeff" />
-        <directionalLight
-          position={[15, 20, 10]}
-          intensity={1.5}
-          color="#fffbeb"
-        // Shadows DISABLED for stability
-        // castShadow
-        // shadow-mapSize={[1024, 1024]}
-        />
-        {/* <Environment preset="city" /> - DISABLED */}
-        {/* LIGHT SYSTEMS DISABLED */}
-        {/* <DayNightCycle day={day} neonMode={neonMode} weather={weather} activeDisaster={activeDisaster} /> */}
+        <DayNightCycle day={day} neonMode={neonMode} weather={weather} activeDisaster={activeDisaster} planet={planet} />
         <group>
           <GroundSystem
             grid={grid}
             onTileClick={(x, y) => onTileClick(x, y)}
             hoveredTile={hoveredTile}
             neonMode={neonMode}
+            weather={weather}
+            planet={planet}
           />
 
           {/* Toggle for Quality vs Performance. Setting to TRUE (Quality) by default as requested. */}

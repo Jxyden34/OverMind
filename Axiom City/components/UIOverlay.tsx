@@ -51,6 +51,7 @@ const tools = [
   BuildingType.MegaMall,
   BuildingType.SpacePort,
   BuildingType.University,
+  BuildingType.ResearchCentre,
   BuildingType.Stadium,
   BuildingType.Bridge
 ];
@@ -98,7 +99,8 @@ const ToolButton = ({ type, isSelected, onClick, money, grid }: { type: Building
                                       type === BuildingType.SpacePort ? '🚀' :
                                         type === BuildingType.University ? '🎓' :
                                           type === BuildingType.Stadium ? '🏟️' :
-                                            type === BuildingType.Bridge ? '🌉' : '❓'}
+                                            type === BuildingType.ResearchCentre ? '🧪' :
+                                              type === BuildingType.Bridge ? '🌉' : '❓'}
       </div>
       <div className="text-[11px] font-bold uppercase tracking-wider text-center leading-none text-white shadow-black drop-shadow-md">
         {config.name}

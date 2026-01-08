@@ -160,7 +160,7 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
   },
   [BuildingType.Casino]: {
     type: BuildingType.Casino,
-    cost: 2500,
+    cost: 3000,
     name: "Neon Casino",
     description: "Huge $$$, Huge Crime.",
     color: "#db2777", // Pink-700
@@ -170,7 +170,7 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
   },
   [BuildingType.MegaMall]: {
     type: BuildingType.MegaMall,
-    cost: 10000,
+    cost: 12000,
     name: "Mega Mall",
     description: "Retail Empire. High Traffic.",
     color: "#ec4899", // Pink-500
@@ -204,13 +204,23 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
   },
   [BuildingType.Stadium]: {
     type: BuildingType.Stadium,
-    cost: 12000,
+    cost: 14000,
     name: "Stadium",
     description: "Massive Entertainment.",
     color: "#f59e0b", // Amber-500
     popGen: 0,
     incomeGen: 100,
     crime: 15, // Hooligans
+    maxAllowed: 1
+  },
+  [BuildingType.ResearchCentre]: {
+    type: BuildingType.ResearchCentre,
+    cost: 10000,
+    name: "Research Lab",
+    description: "Unlocks Land Expansion.",
+    color: "#0ea5e9", // Sky-500
+    popGen: 0,
+    incomeGen: -5, // Upkeep
     maxAllowed: 1
   }
 };

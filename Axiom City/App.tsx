@@ -13,28 +13,34 @@ import { generateGameAction, generateCityGoal, generateNewsEvent, generateWeirdE
 import EventModal from './components/EventModal';
 
 // Initialize empty grid with island shape generation for 3D visual interest
-// Initialize grid with random noise for terrain (Islands/Lakes)
-const createInitialGrid = (): Grid => {
+// Initialize grid with random noise for terrain
+const createInitialGrid = (planet: 'Earth' | 'Mars' = 'Earth'): Grid => {
   const grid: Grid = [];
   const seed = Math.random() * 1000; // Random seed
 
   for (let y = 0; y < GRID_SIZE; y++) {
     const row: TileData[] = [];
     for (let x = 0; x < GRID_SIZE; x++) {
-      // Simple noise function using overlapping sine waves
-      // Low frequency for main continents, high freq for noise
+      // Noise logic
       const nx = x / 15;
       const ny = y / 15;
       const noise = Math.sin(nx + seed) * Math.cos(ny + seed) +
         0.5 * Math.sin(nx * 2 + seed) * Math.cos(ny * 2 + seed);
 
-      // Threshold for water: if noise < -0.2 it's water
-      const isWater = noise < -0.3;
+      let buildingType = BuildingType.None;
+
+      if (planet === 'Earth') {
+        // Earth: Water thresholds
+        if (noise < -0.3) buildingType = BuildingType.Water;
+      } else {
+        // Mars: No water, maybe craters? (Just distinct terrain logic if needed, else all Land)
+        // For now, Mars is dry.
+      }
 
       row.push({
         x,
         y,
-        buildingType: isWater ? BuildingType.Water : BuildingType.None,
+        buildingType,
         pollution: 0
       });
     }
@@ -48,7 +54,15 @@ function App() {
   const [gameStarted, setGameStarted] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(true);
 
-  const [grid, setGrid] = useState<Grid>(createInitialGrid);
+  // World State
+  const [worlds, setWorlds] = useState<Record<string, Grid>>(() => ({
+    Earth: createInitialGrid('Earth'),
+    Mars: createInitialGrid('Mars')
+  }));
+
+  // Active Grid (initialized to Earth)
+  const [grid, setGrid] = useState<Grid>(() => worlds['Earth']);
+
   const [stats, setStats] = useState<CityStats>(INITIAL_STATS);
   const [selectedTool, setSelectedTool] = useState<BuildingType>(BuildingType.Road);
 
@@ -208,12 +222,30 @@ function App() {
     if (news) addNewsItem(news);
   }, [addNewsItem, handleTriggerWeirdEvent]);
 
+  // Research State
+  const [isResearchOpen, setIsResearchOpen] = useState(false);
+
   // Helper to execute actions (USER or AI)
   const performAction = useCallback((action: string, type: BuildingType | null, x: number, y: number) => {
     const currentGrid = gridRef.current;
     const currentStats = statsRef.current;
 
     if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return false;
+
+    // Check Playable Bounds (Fog of War)
+    const center = Math.floor(GRID_SIZE / 2); // 22
+    const halfSize = Math.floor(currentStats.unlockedGridSize / 2);
+    const minBounds = center - halfSize;
+    const maxBounds = center + halfSize;
+
+    const isOutOfBounds = x < minBounds || x > maxBounds || y < minBounds || y > maxBounds;
+
+    // Allow DEMOLISH outside bounds? Maybe. But BUILD is restricted.
+    if (action === 'BUILD' && isOutOfBounds) {
+      // Visual feedback could be added here, currently just fails silently
+      return false;
+    }
+
     const currentTile = currentGrid[y][x];
 
     if (action === 'DEMOLISH') {
@@ -223,6 +255,11 @@ function App() {
 
         // Restore Water if demolishing a bridge
         const replacementType = currentTile.buildingType === BuildingType.Bridge ? BuildingType.Water : BuildingType.None;
+
+        // If demolishing Research Centre, update stats
+        if (currentTile.buildingType === BuildingType.ResearchCentre) {
+          setStats(prev => ({ ...prev, research: { ...prev.research, isResearchCentreBuilt: false } }));
+        }
 
         newGrid[y][x] = { ...currentTile, buildingType: replacementType };
         setGrid(newGrid);
@@ -252,13 +289,78 @@ function App() {
           const newGrid = currentGrid.map(row => [...row]);
           newGrid[y][x] = { ...currentTile, buildingType: type };
           setGrid(newGrid);
-          setStats(prev => ({ ...prev, money: prev.money - config.cost }));
+
+          // Deduct Cost
+          setStats(prev => {
+            const newResearch = { ...prev.research };
+            if (type === BuildingType.ResearchCentre) newResearch.isResearchCentreBuilt = true;
+            return { ...prev, money: prev.money - config.cost, research: newResearch };
+          });
           return true;
         }
       }
     }
     return false;
   }, []);
+
+  // Research Logic
+  const handleResearch = (type: 'LAND' | 'MARS' | 'NAUTICAL') => {
+    const s = statsRef.current;
+
+    if (type === 'LAND') {
+      const cost = 5000 + (s.research.landExpansionLevel * 5000);
+      if (s.money >= cost && s.unlockedGridSize < GRID_SIZE) {
+        setStats(prev => ({
+          ...prev,
+          money: prev.money - cost,
+          unlockedGridSize: Math.min(GRID_SIZE, prev.unlockedGridSize + 10),
+          research: { ...prev.research, landExpansionLevel: prev.research.landExpansionLevel + 1 }
+        }));
+        addNewsItem({ id: Date.now().toString(), text: "Land Expanded! New territory available.", type: 'positive' });
+      }
+    }
+    else if (type === 'MARS') {
+      const cost = 20000;
+      if (s.money >= cost && !s.research.isMarsDiscovered) {
+        setStats(prev => ({
+          ...prev,
+          money: prev.money - cost,
+          research: { ...prev.research, isMarsDiscovered: true }
+        }));
+        addNewsItem({ id: Date.now().toString(), text: "MARS DISCOVERED! Build a Space Port to travel there.", type: 'positive' });
+      }
+    }
+    else if (type === 'NAUTICAL') {
+      const cost = 10000;
+      if (s.money >= cost && s.research.nauticalLevel === 0) {
+        setStats(prev => ({
+          ...prev,
+          money: prev.money - cost,
+          research: { ...prev.research, nauticalLevel: 1 }
+        }));
+        addNewsItem({ id: Date.now().toString(), text: "Nautical Logistics Unlocked! Trade efficiency +10%.", type: 'positive' });
+        // Apply passive boost elsewhere if implemented, currently just status
+      }
+    }
+  };
+
+  // Planet Travel Logic
+  const travelToPlanet = (target: 'Earth' | 'Mars') => {
+    // 1. Save current grid to world storage
+    const currentP = statsRef.current.activePlanet;
+    const currentG = gridRef.current;
+
+    setWorlds(prev => ({ ...prev, [currentP]: currentG }));
+
+    // 2. Load target grid
+    const targetG = worlds[target] || createInitialGrid(target);
+
+    // 3. Switch
+    setGrid(targetG);
+    setStats(prev => ({ ...prev, activePlanet: target }));
+
+    addNewsItem({ id: Date.now().toString(), text: `Arrival confirmed: ${target}.`, type: 'neutral' });
+  };
 
   // Disaster Helper
   const triggerDisaster = useCallback((forcedType?: DisasterType) => {
@@ -604,7 +706,18 @@ function App() {
       setStats(prev => ({ ...prev, activeEvent: EconomicEvent.Audit, eventDuration: 5 }));
       addNewsItem({ id: Date.now().toString(), text: "👮 TAX AUDIT! Accounts frozen for investigation.", type: 'neutral' });
     }
-  }, [addNewsItem]);
+
+    // --- INDEPENDENT EXTREMELY RARE EXODUS CHECK ---
+    // User requested 0.000000000000001% chance
+    if (Math.random() < 0.000000000000001) {
+      setStats(prev => ({ ...prev, activeEvent: EconomicEvent.Exodus, eventDuration: 30 }));
+      const msg = currentStats.research.isMarsDiscovered
+        ? "🚀 THE GREAT EXODUS! Thousands are fleeing Earth for the Mars colony."
+        : "🚶 MASS DESERTION! Citizens are abandoning civilization in droves.";
+      addNewsItem({ id: Date.now().toString(), text: msg, type: 'negative' });
+      addToHistory("Mass Exodus Began", 'disaster');
+    }
+  }, [addNewsItem, addToHistory]);
 
   const handleBuyShares = () => {
     setStats(prev => {
@@ -694,6 +807,7 @@ function App() {
         pollutionLevel={stats.pollutionLevel}
         windDirection={stats.windDirection}
         activeEvent={stats.activeEvent}
+        planet={stats.activePlanet}
       />
 
       {/* Start Screen Overlay */}
@@ -740,10 +854,150 @@ function App() {
         />
       )}
 
+      {/* RESEARCH BUTTON */}
+      {gameStarted && stats.research.isResearchCentreBuilt && (
+        <button
+          onClick={() => setIsResearchOpen(true)}
+          className="absolute top-20 right-4 z-50 bg-sky-600 hover:bg-sky-500 text-white font-bold py-2 px-4 rounded-full shadow-lg border-2 border-sky-300 flex items-center gap-2 animate-pulse"
+        >
+          <span className="text-xl">🧪</span> RESEARCH
+        </button>
+      )}
+
+      {/* TRAVEL BUTTON (Only Earth -> Mars or Mars -> Earth) */}
+      {gameStarted && (
+        (() => {
+          const hasSpacePort = grid.flat().some(t => t.buildingType === BuildingType.SpacePort);
+          const canTravel = (stats.activePlanet === 'Earth' && stats.research.isMarsDiscovered && hasSpacePort) ||
+            (stats.activePlanet === 'Mars');
+
+          if (!canTravel) return null;
+
+          return (
+            <button
+              onClick={() => travelToPlanet(stats.activePlanet === 'Earth' ? 'Mars' : 'Earth')}
+              className="absolute top-36 right-4 z-50 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded-full shadow-lg border-2 border-indigo-300 flex items-center gap-2"
+            >
+              <span className="text-xl">🚀</span> {stats.activePlanet === 'Earth' ? 'LAUNCH TO MARS' : 'RETURN TO EARTH'}
+            </button>
+          );
+        })()
+      )}
+
+      {/* RESEARCH MODAL */}
+      {isResearchOpen && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border-2 border-sky-500 rounded-xl p-6 max-w-md w-full shadow-2xl relative animate-fade-in">
+            <button onClick={() => setIsResearchOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white text-xl">✕</button>
+            <h2 className="text-2xl font-bold text-sky-400 mb-6 flex items-center gap-2">
+              <span className="text-3xl">🧪</span> RESEARCH LAB
+            </h2>
+
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+              {/* LAND EXPANSION */}
+              <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <h3 className="font-bold text-white text-lg">Land Grant (Lvl {stats.research.landExpansionLevel})</h3>
+                    <p className="text-sm text-slate-400">Expand city boundaries.</p>
+                  </div>
+                  <div className="text-amber-400 font-mono font-bold">
+                    ${5000 + (stats.research.landExpansionLevel * 5000)}
+                  </div>
+                </div>
+
+                {stats.unlockedGridSize >= GRID_SIZE ? (
+                  <button disabled className="w-full py-2 bg-green-600/30 text-green-400 rounded font-bold cursor-not-allowed border border-green-500/50">MAX EXPANSION REACHED</button>
+                ) : (
+                  <button
+                    onClick={() => handleResearch('LAND')}
+                    disabled={stats.money < (5000 + (stats.research.landExpansionLevel * 5000))}
+                    className={`w-full py-2 rounded font-bold transition-colors ${stats.money >= (5000 + (stats.research.landExpansionLevel * 5000)) ? 'bg-sky-600 hover:bg-sky-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
+                  >
+                    RESEARCH EXPANSION
+                  </button>
+                )}
+              </div>
+
+              {/* MARS DISCOVERY */}
+              <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <h3 className="font-bold text-white text-lg">Mars Survey</h3>
+                    <p className="text-sm text-slate-400">Locate habitable zones on Mars.</p>
+                  </div>
+                  <div className="text-amber-400 font-mono font-bold">
+                    $20,000
+                  </div>
+                </div>
+
+                {stats.research.isMarsDiscovered ? (
+                  <button disabled className="w-full py-2 bg-indigo-600/30 text-indigo-400 rounded font-bold cursor-not-allowed border border-indigo-500/50">MARS DISCOVERED</button>
+                ) : (
+                  <button
+                    onClick={() => handleResearch('MARS')}
+                    disabled={stats.money < 20000}
+                    className={`w-full py-2 rounded font-bold transition-colors ${stats.money >= 20000 ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
+                  >
+                    COMMENCE SURVEY
+                  </button>
+                )}
+              </div>
+
+              {/* BOAT TRAVEL / NAUTICAL */}
+              <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <h3 className="font-bold text-white text-lg">Nautical Exports</h3>
+                    <p className="text-sm text-slate-400">Boost trade revenue +10%.</p>
+                  </div>
+                  <div className="text-amber-400 font-mono font-bold">
+                    $10,000
+                  </div>
+                </div>
+
+                {stats.research.nauticalLevel > 0 ? (
+                  <button disabled className="w-full py-2 bg-cyan-600/30 text-cyan-400 rounded font-bold cursor-not-allowed border border-cyan-500/50">NAUTICAL UNLOCKED</button>
+                ) : (
+                  <button
+                    onClick={() => handleResearch('NAUTICAL')}
+                    disabled={stats.money < 10000}
+                    className={`w-full py-2 rounded font-bold transition-colors ${stats.money >= 10000 ? 'bg-cyan-600 hover:bg-cyan-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
+                  >
+                    UPGRADE PORTS
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXODUS OVERLAY (Weather Event Style) */}
+      {stats.activeEvent === EconomicEvent.Exodus && (
+        <div className="absolute top-0 left-0 w-full z-[100] animate-exodus-slide">
+          <div className="bg-red-600 shadow-[0_4px_30px_rgba(220,38,38,0.5)] border-b-2 border-red-400 p-2 text-center overflow-hidden">
+            <div className="flex items-center justify-center gap-6 animate-exodus-pulse">
+              <span className="text-xl">⚠️</span>
+              <span className="text-white font-black tracking-[0.2em] uppercase text-lg">
+                MASS EXODUS IN PROGRESS - CITIZENS FLEEING
+              </span>
+              <span className="text-xl">🚀</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CSS for animations and utility */}
       <style>{`
         @keyframes fade-in { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
         .animate-fade-in { animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        
+        @keyframes exodus-slide { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+        .animate-exodus-slide { animation: exodus-slide 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+        @keyframes exodus-pulse { 0% { opacity: 0.8; transform: scale(1); } 50% { opacity: 1; transform: scale(1.02); } 100% { opacity: 0.8; transform: scale(1); } }
+        .animate-exodus-pulse { animation: exodus-pulse 1.5s ease-in-out infinite; }
         
         .mask-image-b { -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%); mask-image: linear-gradient(to bottom, transparent 0%, black 15%); }
         

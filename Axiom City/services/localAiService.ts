@@ -245,26 +245,107 @@ export const generateGameAction = async (stats: CityStats, grid: Grid, recentFai
         crimeRate: stats.crimeRate,
         security: stats.security,
         pollution: stats.pollutionLevel,
+        budget: stats.budget,
+        profit: stats.budget.lastMonthProfit,
         buildings: buildingCounts,
         costs: Object.values(BUILDINGS).filter(b => b.type !== BuildingType.None).map(b => ({ type: b.type, cost: b.cost }))
     };
 
     // 2. Generate Valid Moves
-    const validMoves = getAvailableMoves(grid, stats, recentFailures);
-    // If no moves (e.g. no money or no space), fallback to WAIT
-    const movesList = validMoves.length > 0 ? validMoves.join('\n') : "WAIT (No valid moves or funds)";
+    let validMoves = getAvailableMoves(grid, stats, recentFailures);
 
-    const lowMoneyWarning = stats.money < 1500 ? "CRITICAL: MONEY LOW (<1500). YOU MUST BUILD COMMERCIAL OR GOLD MINES TO SURVIVE." : "";
+    // RESTRICTION: Logic for Low Money (<1500)
+    // If we have < 6 Commercial buildings, we MUST build them to secure income.
+    // If we have >= 6 Commercial buildings, we MUST wait to save up.
+    const commCount = buildingCounts[BuildingType.Commercial] || 0;
+
+    let lowMoneyWarning = "";
+
+    if (stats.money < 1500) {
+        if (commCount < 6) {
+            // Force Commercial Builds Only
+            validMoves = validMoves.filter(m => m.includes(BuildingType.Commercial));
+            lowMoneyWarning = `CRITICAL: MONEY LOW. YOU MUST BUILD COMMERCIAL (${commCount}/6 BUILT).`;
+
+            // If no commercial moves possible (e.g. costs too much?), we fallback to wait logic below
+            if (validMoves.length === 0) {
+                lowMoneyWarning += " (CANNOT AFFORD OR PLACE COMMERCIAL - WAITING)";
+            }
+        } else {
+            // TARGET MET, but Money still low -> FORCE WAIT
+            validMoves = [];
+            lowMoneyWarning = `CRITICAL: SAVING MODE. COMMERCIAL TARGET (${commCount}/6) MET. WAITING FOR FUNDS > $1500.`;
+        }
+    }
+
+    // If no moves (e.g. no money or no space), fallback to WAIT
+    const movesList = validMoves.length > 0 ? validMoves.join('\n') : "WAIT (Saving funds/No moves)";
+
+    const jobs = stats.jobs.total;
+    const pop = stats.population;
+    const laborDeficit = jobs - pop;
+
+    let laborCtx = "";
+    if (laborDeficit > 0) {
+        laborCtx = `CRITICAL: LABOR SHORTAGE (-${laborDeficit} workers). BUILD MANSIONS TO ATTRACT PEOPLE!`;
+    }
+
+    // --- STRATEGY ENGINE ---
+
+    // 1. Determine Current City Phase
+    let phase = "BALANCED_GROWTH";
+    let priorityDirective = "Maintain balanced growth (Residential = Jobs). Keep services funded.";
+
+    if (context.profit < 0) phase = "BANKRUPTCY_PROTOCOL";
+    else if (stats.money < 1500 && commCount < 6) phase = "EARLY_ECONOMY_RUSH";
+    else if (stats.money < 1500) phase = "STRICT_SAVING";
+    else if (laborDeficit > 5) phase = "LABOR_CRISIS";
+    else if (context.crimeRate > context.security) phase = "CRIME_WAVE";
+    else if (context.money > 20000) phase = "DYNASTY_CREATION";
+
+    // 2. Set Directive based on Phase
+    switch (phase) {
+        case "BANKRUPTCY_PROTOCOL":
+            priorityDirective = "URGENT: DEFICIT DETECTED. STOP SERVICE SPENDING. BUILD COMMERCIAL or INDUSTRIAL to fix profit.";
+            break;
+        case "EARLY_ECONOMY_RUSH":
+            priorityDirective = "FOUNDATION PHASE. Prioritize COMMERCIAL for income, but build RESIDENTIAL to house workers.";
+            break;
+        case "STRICT_SAVING":
+            priorityDirective = "CRITICAL: SAVING MODE. Funds < $1500. WAIT until funds recover. Do not build.";
+            break;
+        case "LABOR_CRISIS":
+            priorityDirective = `URGENT: LABOR SHORTAGE (-${laborDeficit}). BUILD RESIDENTIAL (Low Pop) or MANSIONS (High Pop) to fill jobs.`;
+            break;
+        case "CRIME_WAVE":
+            priorityDirective = "URGENT: HIGH CRIME. Build POLICE stations near high density areas.";
+            break;
+        case "DYNASTY_CREATION":
+            priorityDirective = "WEALTHY: Build WONDERS (MegaMall, SpacePort) and optimize layout. Beautify with Parks.";
+            break;
+    }
+
+    // 3. Smart Zoning Rules (Heuristics)
+    const zoningRules = `
+    **SMART ZONING RULES (Maximize Efficiency)**:
+    - **RESIDENTIAL**: Loves PARKS and WATER. Hates POLLUTION (Industry). Keep away from Factories!
+    - **COMMERCIAL**: Likes TRAFFIC (near Intersections/Center). functions well as buffer between Res and Ind.
+    - **INDUSTRIAL**: POLLUTES HEAVILY. Place on the EDGE of the map, far from homes.
+    - **SERVICES**: Place centraally to cover maximum area.
+    `;
 
     const prompt = `
 You are playing a city builder game. 
 Current Stats: ${JSON.stringify(context)}
+Labor Status: Jobs: ${jobs}, Pop: ${pop} (${laborDeficit > 0 ? 'SHORTAGE' : 'Surplus'})
+Financial Status: Profit ${context.profit} (${context.profit < 0 ? 'DEFICIT' : 'SURPLUS'})
+
+**CURRENT STRATEGY PHASE**: ${phase}
+**PRIMARY DIRECTIVE**: ${priorityDirective}
 
 **AVAILABLE MOVES**:
 ${movesList}
 - WAIT (Save money)
-
-${lowMoneyWarning}
 
 **CRITICAL INSTRUCTIONS**:
 1. You can **ONLY** choose from the 'AVAILABLE MOVES' list above.
@@ -272,22 +353,7 @@ ${lowMoneyWarning}
 3. If you want to build, you must output the exact string from the list (e.g. "BUILD Residential 12 5").
 4. If you decide to WAIT, output "WAIT".
 
-**STRATEGY GUIDE**:
-  1. **CHALLENGE**: If 'currentGoal' is active, PRIORITIZE it above all other actions.
-  2. **CRIME**: If CrimeRate > Security, BUILD **Police** (if available) to stabilise the city.
-  3. **POLLUTION**: If Pollution > 15, BUILD **Park** or **University** (green technology & education).
-  4. **HAPPINESS**: If Happiness < 70, BUILD **Park** (preferred) or **Commercial** for leisure and jobs.
-  5. **GROWTH**: If the city is stable and you have money, BUILD **Residential** or **Industrial** to expand.
-  6. **SOLVENCY**:
-     - If Money < 1500, BUILD **Commercial**.
-     - If Money > 10000, BUILD **GoldMine** to store surplus wealth.
-  7. **SPECIAL**: You may build unique wonders (Limit 1 per city, only if Money > $15000):
-     - **MegaMall**: Massive income ($400), but high traffic.
-     - **SpacePort**: Huge tourism income ($5000).
-     - **University**: Boosts education and technology.
-     - **Stadium**: Massive happiness boost (+15).
-     *Warning*: These are expensive and should only be built when the city is stable.
-
+${zoningRules}
 
 Respond with VALID JSON ONLY. Format:
 {
