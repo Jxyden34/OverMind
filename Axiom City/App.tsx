@@ -357,6 +357,10 @@ function App() {
   }, [gameStarted]);
 
 
+  // Day Cycle Tick Counter (Reverted to 1 tick per day as requested)
+  const dayTickRef = useRef(0);
+  const TICKS_PER_DAY = 1; // Revert to original speed (Every 3s is a day)
+
   // --- Game Loop (Simulation) ---
   useEffect(() => {
     if (!gameStarted) return;
@@ -368,16 +372,20 @@ function App() {
 
       // Update Grid immediately (visuals)
       setGrid(newGrid);
-      // Sync ref manually since state update is async and we need it for updateSimulation right below? 
-      // Actually updateSimulation takes explicit grid argument, so we pass newGrid.
+      // Sync ref
       gridRef.current = newGrid;
+
+      // Check if we should increment Day
+      dayTickRef.current += 1;
+      const isNewDay = dayTickRef.current >= TICKS_PER_DAY;
+      if (isNewDay) dayTickRef.current = 0;
 
       setStats(prev => {
         // Apply wind/env stats first
         const intermediateStats = { ...prev, ...windUpdate };
-
         // 2. Run City Simulation (Economy/Happiness) using NEW grid
-        const newStats = updateSimulation(intermediateStats, newGrid);
+        // Start Day is triggered only when counter resets
+        const newStats = updateSimulation(intermediateStats, newGrid, weather, isNewDay);
 
         // Check Goal Completion
         const goal = goalRef.current;
@@ -428,10 +436,10 @@ function App() {
         });
       }
 
-    }, TICK_RATE_MS);
+    }, 3000); // 3 seconds per tick
 
     return () => clearInterval(intervalId);
-  }, [fetchNews, gameStarted, addNewsItem, triggerDisaster]);
+  }, [gameStarted, weather]);
 
   // --- AI Agent Loop ---
   useEffect(() => {

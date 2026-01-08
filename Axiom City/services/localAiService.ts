@@ -254,7 +254,7 @@ export const generateGameAction = async (stats: CityStats, grid: Grid, recentFai
     // If no moves (e.g. no money or no space), fallback to WAIT
     const movesList = validMoves.length > 0 ? validMoves.join('\n') : "WAIT (No valid moves or funds)";
 
-    const lowMoneyWarning = stats.money < 2000 ? "CRITICAL: MONEY LOW (<2000). YOU MUST BUILD COMMERCIAL OR GOLD MINES TO SURVIVE." : "";
+    const lowMoneyWarning = stats.money < 1500 ? "CRITICAL: MONEY LOW (<1500). YOU MUST BUILD COMMERCIAL OR GOLD MINES TO SURVIVE." : "";
 
     const prompt = `
 You are playing a city builder game. 

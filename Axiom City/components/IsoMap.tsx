@@ -167,11 +167,12 @@ const SmokeStack = ({ position }: { position: [number, number, number] }) => {
 };
 
 // --- 2. Ground System (Instanced) ---
-const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode }: {
+const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode, weather }: {
   grid: Grid,
   onTileClick: (x: number, y: number) => void,
   hoveredTile: { x: number, y: number } | null,
-  neonMode: boolean
+  neonMode: boolean,
+  weather: WeatherType
 }) => {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -198,6 +199,23 @@ const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode }: {
         else if (tile.buildingType === BuildingType.Road) c = "#374151";
         else if (tile.buildingType !== BuildingType.None) c = "#059669"; // Foundation
 
+        // WEATHER EFFECTS
+        if (weather === WeatherType.Snow) {
+          if (tile.buildingType === BuildingType.None) c = "#e2e8f0"; // White Snow
+          if (tile.buildingType === BuildingType.Road) c = "#94a3b8"; // Slushy Road
+          if (tile.buildingType === BuildingType.Water) c = "#bfdbfe"; // Icy Water
+        }
+        else if (weather === WeatherType.AcidRain) {
+          // Sickly Tint
+          if (tile.buildingType === BuildingType.None) c = "#84cc16"; // Lime/Toxic mud
+          if (tile.buildingType === BuildingType.Water) c = "#22c55e"; // Toxic slime
+        }
+        else if (weather === WeatherType.Rain) {
+          // Darker wet look
+          if (tile.buildingType === BuildingType.None) c = "#065f46";
+          if (tile.buildingType === BuildingType.Road) c = "#1f2937";
+        }
+
         // Neon Mode Overrides
         if (neonMode) {
           if (tile.buildingType === BuildingType.None) c = (x + y) % 2 === 0 ? '#1e1b4b' : '#312e81';
@@ -210,8 +228,8 @@ const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode }: {
         const isHovered = hoveredTile?.x === x && hoveredTile?.y === y;
         if (isHovered) c = "#67e8f9";
 
-        // Pollution Tint (if not neon)
-        if (!neonMode && tile.pollution && tile.pollution > 0) {
+        // Pollution Tint (if not neon and not Snow)
+        if (!neonMode && weather !== WeatherType.Snow && tile.pollution && tile.pollution > 0) {
           const f = Math.min(1, tile.pollution / 50);
           const base = new THREE.Color(c);
           base.lerp(new THREE.Color("#4b5563"), f * 0.8);
@@ -226,7 +244,7 @@ const GroundSystem = ({ grid, onTileClick, hoveredTile, neonMode }: {
     }
     meshRef.current.instanceMatrix.needsUpdate = true;
     if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
-  }, [grid, hoveredTile, neonMode]); // Re-run when grid changes (ticks) or hover changes
+  }, [grid, hoveredTile, neonMode, weather]); // Re-run when grid changes (ticks) or hover changes
 
   // Handle Clicks via raycast logic if needed, OR we just use onPointerDown on the whole mesh
   // But we need to know WHICH instance was clicked.
@@ -1186,35 +1204,36 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, populat
           {/* Toggle for Quality vs Performance. Setting to TRUE (Quality) by default as requested. */}
           {/* Use Instanced BuildingSystem for Roads/Water/Empty? No, BuildingSystem only does Buildings. */}
           {/* DetailedBuilding loop for buildings. */}
-          
+
           {true ? (
             // Quality Mode: Render individual detailed components
             grid.map((row) => row.map((tile) => {
-               if (tile.buildingType === BuildingType.None || tile.buildingType === BuildingType.Road || tile.buildingType === BuildingType.Water) return null;
-               const [wx, _, wz] = gridToWorld(tile.x, tile.y);
-               const config = BUILDINGS[tile.buildingType];
-               return (
-                 <DetailedBuilding
-                   key={tile.x + '-' + tile.y}
-                   type={tile.buildingType}
-                   baseColor={config.color}
-                   heightVar={1.0}
-                   rotation={0}
-                   hasRoadAccess={tile.hasRoadAccess}
-                   isHovered={hoveredTile?.x === tile.x && hoveredTile?.y === tile.y}
-                   position={[wx, -0.5, wz]} // Align with GroundSystem
-                   onClick={() => onTileClick(tile.x, tile.y)}
-                 />
-               );
+              if (tile.buildingType === BuildingType.None || tile.buildingType === BuildingType.Road || tile.buildingType === BuildingType.Water) return null;
+              const [wx, _, wz] = gridToWorld(tile.x, tile.y);
+              const config = BUILDINGS[tile.buildingType];
+              return (
+                <DetailedBuilding
+                  key={tile.x + '-' + tile.y}
+                  type={tile.buildingType}
+                  baseColor={config.color}
+                  heightVar={1.0}
+                  rotation={0}
+                  hasRoadAccess={tile.hasRoadAccess}
+                  isHovered={hoveredTile?.x === tile.x && hoveredTile?.y === tile.y}
+                  position={[wx, -0.5, wz]} // Align with GroundSystem
+                  onClick={() => onTileClick(tile.x, tile.y)}
+                  weather={weather}
+                />
+              );
             }))
           ) : (
-             // Performance Mode: Instanced
-             <BuildingSystem
-                grid={grid}
-                hoveredTile={hoveredTile}
-                neonMode={neonMode}
-                onTileClick={onTileClick}
-             />
+            // Performance Mode: Instanced
+            <BuildingSystem
+              grid={grid}
+              hoveredTile={hoveredTile}
+              neonMode={neonMode}
+              onTileClick={onTileClick}
+            />
           )}
 
           {/* Buildings (Legacy Loop Removed) */}

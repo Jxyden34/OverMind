@@ -24,15 +24,24 @@ interface DetailedBuildingProps {
     isHovered?: boolean;
     position: [number, number, number];
     onClick?: () => void;
+    weather?: "SNOW" | "CLEAR" | "RAIN" | "ACID_RAIN" | "FOG"; // simplified string or import type
 }
 
-export const DetailedBuilding = React.memo(({ type, baseColor, heightVar, rotation, hasRoadAccess, isHovered, position, onClick }: DetailedBuildingProps) => {
+export const DetailedBuilding = React.memo(({ type, baseColor, heightVar, rotation, hasRoadAccess, isHovered, position, onClick, weather }: DetailedBuildingProps) => {
 
     const seed = useMemo(() => Math.random(), []); // Random seed for variation
     const buildingHeight = useMemo(() => Math.max(0.6, heightVar), [heightVar]);
 
     const content = useMemo(() => {
         const common = { castShadow: true, receiveShadow: true };
+        const isSnowing = weather === 'SNOW';
+
+        // Materials
+        const effectiveRoofColor = isSnowing ? '#f1f5f9' : '#374151'; // Slate-800 or Slate-100
+        const roofMat = new THREE.MeshStandardMaterial({ color: effectiveRoofColor });
+
+        const mat = new THREE.MeshStandardMaterial({ color: baseColor });
+        const matDark = new THREE.MeshStandardMaterial({ color: '#333333' }); // Windows/Contrast
 
         switch (type) {
             case BuildingType.Residential:

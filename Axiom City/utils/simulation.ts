@@ -1,4 +1,4 @@
-import { CityStats, Grid, BuildingType, EconomicEvent } from '../types';
+import { CityStats, Grid, BuildingType, EconomicEvent, WeatherType } from '../types';
 import { BUILDINGS } from '../constants';
 
 export const INITIAL_STATS: CityStats = {
@@ -48,9 +48,21 @@ export const INITIAL_STATS: CityStats = {
     currentGoal: null
 };
 
-export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats => {
+// Update signature to accept weather and incrementDay flag
+export const updateSimulation = (currentStats: CityStats, grid: Grid, weather?: WeatherType, incrementDay: boolean = true): CityStats => {
     let newStats = { ...currentStats };
-    newStats.day += 1;
+
+    // Only increment day and run daily logic if flag is true
+    if (incrementDay) {
+        newStats.day += 1;
+    }
+
+    // Weather Effects Flags
+    const isSnowing = weather === WeatherType.Snow;
+    const isAcidRain = weather === WeatherType.AcidRain;
+
+    // Income Multiplier (Snow slows economy)
+    const weatherIncomeMult = isSnowing ? 0.8 : 1.0;
 
     // 1. Calculate Buildings Count & Upkeep & New Stats
     let schools = 0;
@@ -67,6 +79,9 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     // Accumulators for new stats
     let rawCrime = 0;
     let rawPollution = 0;
+
+    // Acid Rain Damage Counter
+    let structuresDamaged = 0;
 
     grid.forEach(row => row.forEach(tile => {
         if (tile.buildingType === BuildingType.School) schools++;
@@ -100,26 +115,42 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
                     }
                 }
             }
-            // Store status in object for Renderer (mutating cloned grid tile is fine here as it's a fresh copy structure if done right, 
-            // but updateSimulation is mutating 'grid' argument? No, it usually treats it as read-only or we should be careful. 
-            // The simulation loop currently iterates 'grid'. We should probably output the status.
-            // For now, let's mutate the tile property since we are in the simulation step and it will be persisted to state.
+            // Store status in object for Renderer
             tile.hasRoadAccess = connected;
 
             const config = BUILDINGS[tile.buildingType];
             if (config) {
                 let income = config.incomeGen;
 
-                // PENALTY
+                // PENALTY: Road Access
                 if (!connected && tile.buildingType !== BuildingType.None) {
                     income = Math.floor(income * 0.5); // 50% Income
-                    // Happiness penalty logic accumulated below
                 }
 
-                if (income !== 0) newStats.money += income;
+                // WEATHER PENALTY: Snow (Slowdown)
+                if (isSnowing && income > 0) {
+                    income = Math.floor(income * weatherIncomeMult);
+                }
+
+                // WEATHER DAMAGE: Acid Rain (Corrosion Costs)
+                // Only apply damage on "Day" tick to prevent rapid destruction
+                if (incrementDay && isAcidRain && tile.buildingType !== BuildingType.None) {
+                    // 2% chance to lose functionality/income entirely for this tick (simulating repair downtime)
+                    if (Math.random() < 0.02) {
+                        income = 0;
+                        structuresDamaged++;
+                    }
+                }
+
+                // INCOME only accumulates on "incrementDay" (Daily Income)
+                // Otherwise we'd have massive inflation if we run this every 3s but only aging every 5m.
+                if (incrementDay) {
+                    if (income !== 0) newStats.money += income;
+                }
+
                 if (config.popGen > 0) housingCapacity += config.popGen;
 
-                // Add Crime & Pollution
+                // Add Crime & Pollution (Calculated every tick for stats, but logic usually stable)
                 if (config.crime) rawCrime += config.crime;
                 if (config.pollution) rawPollution += config.pollution;
             }
@@ -128,6 +159,11 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
         if (tile.buildingType === BuildingType.Commercial) commJobs += 5;
         if (tile.buildingType === BuildingType.Industrial) indJobs += 8;
     }));
+
+    // Apply Acid Rain Repair Costs
+    if (incrementDay && structuresDamaged > 0) {
+        newStats.money -= (structuresDamaged * 50); // Repair costs
+    }
 
     newStats.housingCapacity = housingCapacity;
 
@@ -195,9 +231,9 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
         newStats.demographics.seniors;
 
     // ------------------------------------
-    // Births (slow, happiness-driven)
+    // Births (slow, happiness-driven) - DAILY ONLY
     // ------------------------------------
-    if (totalPop < housingCapacity) {
+    if (incrementDay && totalPop < housingCapacity) {
         const birthChance = 0.02 * happinessFactor;
         const births = Math.floor(newStats.demographics.adults * birthChance);
         newStats.demographics.children += births;
@@ -210,23 +246,25 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
         }
     }
 
-    // Aging
-    const ageUpChildChance = 0.05 * schoolFactor;
-    const ageUpAdultChance = 0.02;
-    const deathChance = 0.05 / (1 + hospitals);
+    // Aging - DAILY ONLY
+    if (incrementDay) {
+        const ageUpChildChance = 0.05 * schoolFactor;
+        const ageUpAdultChance = 0.02;
+        const deathChance = 0.05 / (1 + hospitals);
 
-    const agingChildren = Math.floor(newStats.demographics.children * ageUpChildChance);
-    newStats.demographics.children -= agingChildren;
-    newStats.demographics.adults += agingChildren;
+        const agingChildren = Math.floor(newStats.demographics.children * ageUpChildChance);
+        newStats.demographics.children -= agingChildren;
+        newStats.demographics.adults += agingChildren;
 
-    const agingAdults = Math.floor(newStats.demographics.adults * ageUpAdultChance);
-    newStats.demographics.adults -= agingAdults;
-    newStats.demographics.seniors += agingAdults;
+        const agingAdults = Math.floor(newStats.demographics.adults * ageUpAdultChance);
+        newStats.demographics.adults -= agingAdults;
+        newStats.demographics.seniors += agingAdults;
 
-    // Crime Deaths: If crime is high (>50), seniors die faster.
-    const crimeDeathFactor = newStats.crimeRate > 50 ? 0.05 : 0;
-    const deaths = Math.floor(newStats.demographics.seniors * (deathChance + crimeDeathFactor));
-    newStats.demographics.seniors = Math.max(0, newStats.demographics.seniors - deaths);
+        // Crime Deaths: If crime is high (>50), seniors die faster.
+        const crimeDeathFactor = newStats.crimeRate > 50 ? 0.05 : 0;
+        const deaths = Math.floor(newStats.demographics.seniors * (deathChance + crimeDeathFactor));
+        newStats.demographics.seniors = Math.max(0, newStats.demographics.seniors - deaths);
+    }
 
     newStats.population = newStats.demographics.children + newStats.demographics.adults + newStats.demographics.seniors;
 
@@ -246,7 +284,7 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     // --- 6. VOLATILE ECONOMY & RISK ---
 
     // Event Decay
-    if (newStats.activeEvent !== EconomicEvent.None) {
+    if (incrementDay && newStats.activeEvent !== EconomicEvent.None) {
         newStats.eventDuration -= 1;
         if (newStats.eventDuration <= 0) {
             newStats.activeEvent = EconomicEvent.None;
@@ -299,7 +337,10 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
 
     const totalExpenses = serviceUpkeep + welfareCost + theftLoss;
 
-    newStats.money += (totalIncome - totalExpenses);
+    // Apply Daily Financials
+    if (incrementDay) {
+        newStats.money += (totalIncome - totalExpenses);
+    }
 
     // Populate Budget Object for UI
     newStats.budget = {
