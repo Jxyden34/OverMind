@@ -304,45 +304,42 @@ function App() {
   }, []);
 
   // Research Logic
-  const handleResearch = (type: 'LAND' | 'MARS' | 'NAUTICAL') => {
+  const handleResearch = useCallback((type: 'LAND' | 'MARS' | 'NAUTICAL') => {
     const s = statsRef.current;
+    if (s.research.activeResearch) return false;
+
+    let cost = 0;
+    let days = 0;
 
     if (type === 'LAND') {
-      const cost = 5000 + (s.research.landExpansionLevel * 5000);
-      if (s.money >= cost && s.unlockedGridSize < GRID_SIZE) {
-        setStats(prev => ({
-          ...prev,
-          money: prev.money - cost,
-          unlockedGridSize: Math.min(GRID_SIZE, prev.unlockedGridSize + 10),
-          research: { ...prev.research, landExpansionLevel: prev.research.landExpansionLevel + 1 }
-        }));
-        addNewsItem({ id: Date.now().toString(), text: "Land Expanded! New territory available.", type: 'positive' });
-      }
+      cost = 5000 + (s.research.landExpansionLevel * 5000);
+      days = 5;
+    } else if (type === 'MARS') {
+      cost = 20000;
+      days = 50;
+    } else if (type === 'NAUTICAL') {
+      cost = 10000;
+      days = 20;
     }
-    else if (type === 'MARS') {
-      const cost = 20000;
-      if (s.money >= cost && !s.research.isMarsDiscovered) {
-        setStats(prev => ({
-          ...prev,
-          money: prev.money - cost,
-          research: { ...prev.research, isMarsDiscovered: true }
-        }));
-        addNewsItem({ id: Date.now().toString(), text: "MARS DISCOVERED! Build a Space Port to travel there.", type: 'positive' });
-      }
+
+    if (s.money >= cost) {
+      setStats(prev => ({
+        ...prev,
+        money: prev.money - cost,
+        research: {
+          ...prev.research,
+          activeResearch: { type, daysRemaining: days, totalDays: days }
+        }
+      }));
+
+      const msg = type === 'MARS' ? "Project RED: Mars survey initiated (50 Days)" :
+        type === 'NAUTICAL' ? "Nautical Research Phase 1: 20 Days remaining" :
+          `Surveying regional land expansion (5 Days)`;
+      addNewsItem({ id: Date.now().toString(), text: msg, type: 'neutral' });
+      return true;
     }
-    else if (type === 'NAUTICAL') {
-      const cost = 10000;
-      if (s.money >= cost && s.research.nauticalLevel === 0) {
-        setStats(prev => ({
-          ...prev,
-          money: prev.money - cost,
-          research: { ...prev.research, nauticalLevel: 1 }
-        }));
-        addNewsItem({ id: Date.now().toString(), text: "Nautical Logistics Unlocked! Trade efficiency +10%.", type: 'positive' });
-        // Apply passive boost elsewhere if implemented, currently just status
-      }
-    }
-  };
+    return false;
+  }, [addNewsItem]);
 
   // Planet Travel Logic
   const travelToPlanet = (target: 'Earth' | 'Mars') => {
@@ -605,6 +602,8 @@ function App() {
                 type: 'negative'
               });
             }
+          } else if (action.action === 'RESEARCH' && action.researchType) {
+            handleResearch(action.researchType);
           }
 
           setLastAIAction(action);
@@ -894,6 +893,22 @@ function App() {
             </h2>
 
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+              {/* RESEARCH PROGRESS HELPER */}
+              {stats.research.activeResearch && (
+                <div className="bg-sky-900/40 border border-sky-500/50 p-3 rounded-lg animate-pulse mb-6">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sky-300 font-bold uppercase text-xs tracking-widest">Active Research: {stats.research.activeResearch.type}</span>
+                    <span className="text-sky-400 font-mono text-xs">{stats.research.activeResearch.daysRemaining}D REMAINING</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-sky-400 h-full shadow-[0_0_10px_#38bdf8]"
+                      style={{ width: `${100 - (stats.research.activeResearch.daysRemaining / stats.research.activeResearch.totalDays * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* LAND EXPANSION */}
               <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
                 <div className="flex justify-between items-start mb-2">
@@ -911,10 +926,10 @@ function App() {
                 ) : (
                   <button
                     onClick={() => handleResearch('LAND')}
-                    disabled={stats.money < (5000 + (stats.research.landExpansionLevel * 5000))}
-                    className={`w-full py-2 rounded font-bold transition-colors ${stats.money >= (5000 + (stats.research.landExpansionLevel * 5000)) ? 'bg-sky-600 hover:bg-sky-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
+                    disabled={!!stats.research.activeResearch || stats.money < (5000 + (stats.research.landExpansionLevel * 5000))}
+                    className={`w-full py-2 rounded font-bold transition-colors ${!stats.research.activeResearch && stats.money >= (5000 + (stats.research.landExpansionLevel * 5000)) ? 'bg-sky-600 hover:bg-sky-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
                   >
-                    RESEARCH EXPANSION
+                    {stats.research.activeResearch?.type === 'LAND' ? 'SURVEYING...' : 'RESEARCH EXPANSION'}
                   </button>
                 )}
               </div>
@@ -936,10 +951,10 @@ function App() {
                 ) : (
                   <button
                     onClick={() => handleResearch('MARS')}
-                    disabled={stats.money < 20000}
-                    className={`w-full py-2 rounded font-bold transition-colors ${stats.money >= 20000 ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
+                    disabled={!!stats.research.activeResearch || stats.money < 20000}
+                    className={`w-full py-2 rounded font-bold transition-colors ${!stats.research.activeResearch && stats.money >= 20000 ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
                   >
-                    COMMENCE SURVEY
+                    {stats.research.activeResearch?.type === 'MARS' ? 'SCANNING DEEP SPACE...' : 'COMMENCE SURVEY'}
                   </button>
                 )}
               </div>
@@ -949,7 +964,7 @@ function App() {
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <h3 className="font-bold text-white text-lg">Nautical Exports</h3>
-                    <p className="text-sm text-slate-400">Boost trade revenue +10%.</p>
+                    <p className="text-sm text-slate-400">Boost trade revenue +15%.</p>
                   </div>
                   <div className="text-amber-400 font-mono font-bold">
                     $10,000
@@ -961,10 +976,10 @@ function App() {
                 ) : (
                   <button
                     onClick={() => handleResearch('NAUTICAL')}
-                    disabled={stats.money < 10000}
-                    className={`w-full py-2 rounded font-bold transition-colors ${stats.money >= 10000 ? 'bg-cyan-600 hover:bg-cyan-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
+                    disabled={!!stats.research.activeResearch || stats.money < 10000}
+                    className={`w-full py-2 rounded font-bold transition-colors ${!stats.research.activeResearch && stats.money >= 10000 ? 'bg-cyan-600 hover:bg-cyan-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
                   >
-                    UPGRADE PORTS
+                    {stats.research.activeResearch?.type === 'NAUTICAL' ? 'DEVELOPING LOGISTICS...' : 'UPGRADE PORTS'}
                   </button>
                 )}
               </div>

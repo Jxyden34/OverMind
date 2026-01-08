@@ -140,6 +140,11 @@ export interface CityStats {
     isResearchCentreBuilt: boolean;
     isMarsDiscovered: boolean;
     nauticalLevel: number; // 0 = None, 1 = Basic, 2 = Advanced
+    activeResearch: {
+      type: 'MARS' | 'NAUTICAL' | 'LAND';
+      daysRemaining: number;
+      totalDays: number;
+    } | null;
   };
   activePlanet: 'Earth' | 'Mars';
   unlockedGridSize: number; // The actual playable bounds (e.g. 25, 35, 45)
@@ -183,8 +188,9 @@ export interface GameEvent {
 }
 
 export interface AIAction {
-  action: 'BUILD' | 'DEMOLISH' | 'WAIT';
+  action: 'BUILD' | 'DEMOLISH' | 'WAIT' | 'RESEARCH';
   buildingType?: BuildingType;
+  researchType?: 'MARS' | 'NAUTICAL' | 'LAND';
   x?: number;
   y?: number;
   reasoning?: string;

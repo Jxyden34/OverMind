@@ -1,5 +1,5 @@
 import { CityStats, Grid, BuildingType, EconomicEvent, WeatherType } from '../types';
-import { BUILDINGS } from '../constants';
+import { BUILDINGS, GRID_SIZE } from '../constants';
 
 export const INITIAL_STATS: CityStats = {
     money: 5000,
@@ -47,7 +47,8 @@ export const INITIAL_STATS: CityStats = {
         landExpansionLevel: 0,
         isResearchCentreBuilt: false,
         isMarsDiscovered: false,
-        nauticalLevel: 0
+        nauticalLevel: 0,
+        activeResearch: null
     },
     activePlanet: 'Earth',
     unlockedGridSize: 25, // Start with a smaller playable area (25x25 center)
@@ -290,6 +291,25 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid, weather?: 
         const crimeDeathFactor = newStats.crimeRate > 50 ? 0.05 : 0;
         const deaths = Math.floor(newStats.demographics.seniors * (deathChance + crimeDeathFactor));
         newStats.demographics.seniors = Math.max(0, newStats.demographics.seniors - deaths);
+
+        // ------------------------------------
+        // RESEARCH PROGRESS (Daily)
+        // ------------------------------------
+        if (newStats.research.activeResearch) {
+            newStats.research.activeResearch.daysRemaining--;
+            if (newStats.research.activeResearch.daysRemaining <= 0) {
+                const type = newStats.research.activeResearch.type;
+                if (type === 'MARS') {
+                    newStats.research.isMarsDiscovered = true;
+                } else if (type === 'NAUTICAL') {
+                    newStats.research.nauticalLevel++;
+                } else if (type === 'LAND') {
+                    newStats.research.landExpansionLevel++;
+                    newStats.unlockedGridSize = Math.min(GRID_SIZE, newStats.unlockedGridSize + 10);
+                }
+                newStats.research.activeResearch = null; // Done
+            }
+        }
     }
 
     newStats.population = newStats.demographics.children + newStats.demographics.adults + newStats.demographics.seniors;

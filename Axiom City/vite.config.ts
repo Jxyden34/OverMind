@@ -9,11 +9,14 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 1111,
       host: '0.0.0.0',
+      allowedHosts: [
+        'city.hindley.tech',
+      ],
       proxy: {
         '/api': {
           target: 'https://chat.hindley.tech',
           changeOrigin: true,
-          secure: false, // Accept self-signed certs just in case
+          secure: false,
         }
       },
     },

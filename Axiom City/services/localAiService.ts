@@ -248,6 +248,8 @@ export const generateGameAction = async (stats: CityStats, grid: Grid, recentFai
         budget: stats.budget,
         profit: stats.budget.lastMonthProfit,
         buildings: buildingCounts,
+        research: stats.research,
+        unlockedGridSize: stats.unlockedGridSize,
         costs: Object.values(BUILDINGS).filter(b => b.type !== BuildingType.None).map(b => ({ type: b.type, cost: b.cost }))
     };
 
@@ -301,6 +303,7 @@ export const generateGameAction = async (stats: CityStats, grid: Grid, recentFai
     else if (stats.money < 1500) phase = "STRICT_SAVING";
     else if (laborDeficit > 5) phase = "LABOR_CRISIS";
     else if (context.crimeRate > context.security) phase = "CRIME_WAVE";
+    else if (stats.research.isResearchCentreBuilt && !stats.research.activeResearch && stats.money > 5000) phase = "RESEARCH_AND_EXPANSION";
     else if (context.money > 20000) phase = "DYNASTY_CREATION";
 
     // 2. Set Directive based on Phase
@@ -320,8 +323,11 @@ export const generateGameAction = async (stats: CityStats, grid: Grid, recentFai
         case "CRIME_WAVE":
             priorityDirective = "URGENT: HIGH CRIME. Build POLICE stations near high density areas.";
             break;
+        case "RESEARCH_AND_EXPANSION":
+            priorityDirective = "TECHNOLOGY PHASE. Use your Research Centre to expand land or unlock Nautical exports.";
+            break;
         case "DYNASTY_CREATION":
-            priorityDirective = "WEALTHY: Build WONDERS (MegaMall, SpacePort) and optimize layout. Beautify with Parks.";
+            priorityDirective = "WEALTHY: Build WONDERS. If Mars is not discovered, prioritize RESEARCH MARS to expand the empire.";
             break;
     }
 
@@ -345,7 +351,13 @@ Financial Status: Profit ${context.profit} (${context.profit < 0 ? 'DEFICIT' : '
 
 **AVAILABLE MOVES**:
 ${movesList}
+- RESEARCH [TYPE] (Initiate research if Research Centre is built and idle. TYPEs: MARS, NAUTICAL, LAND)
 - WAIT (Save money)
+
+**RESEARCH REGISTRY**:
+- **LAND**: $5,000+ (Increases city bounds) - Duration: 5 Days
+- **NAUTICAL**: $10,000 (Trade boost +15%) - Duration: 20 Days
+- **MARS**: $20,000 (Discover Red Planet) - Duration: 50 Days
 
 **CRITICAL INSTRUCTIONS**:
 1. You can **ONLY** choose from the 'AVAILABLE MOVES' list above.
@@ -355,10 +367,11 @@ ${movesList}
 
 ${zoningRules}
 
-Respond with VALID JSON ONLY. Format:
+Responde with VALID JSON ONLY. Format:
 {
-  "action": "BUILD" | "WAIT",
-  "buildingType": string | null,
+  "action": "BUILD" | "WAIT" | "RESEARCH",
+  "buildingType": string | null, // Only if action is BUILD
+  "researchType": "MARS" | "NAUTICAL" | "LAND" | null, // Only if action is RESEARCH
   "x": number,
   "y": number,
   "reasoning": "Short explanation"
