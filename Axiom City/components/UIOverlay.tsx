@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useEffect, useRef, useState } from 'react';
-import { BuildingType, CityStats, AIGoal, NewsItem, WeatherType, DisasterType, ActiveDisaster } from '../types';
+import { BuildingType, CityStats, AIGoal, NewsItem, WeatherType, DisasterType, ActiveDisaster, HistoryLogEntry } from '../types';
 import { BUILDINGS } from '../constants';
 
 interface UIOverlayProps {
@@ -24,6 +24,9 @@ interface UIOverlayProps {
   weather: WeatherType;
   activeDisaster: ActiveDisaster | null;
   onTriggerDisaster: () => void;
+  aiEnabled: boolean;
+  onToggleAi: () => void;
+  historyLog: HistoryLogEntry[];
 }
 
 const tools = [
@@ -105,6 +108,18 @@ const CityStatusPanel = ({ stats }: { stats: CityStats }) => (
       <StatusRow label="Crime Risk" value={stats.crimeRate > 0 ? `${stats.crimeRate}` : 'Low'} color={stats.crimeRate > 20 ? 'text-red-500' : 'text-gray-400'} />
       <StatusRow label="Pollution" value={stats.pollutionLevel > 0 ? `${stats.pollutionLevel}` : 'Clean'} color={stats.pollutionLevel > 20 ? 'text-lime-400' : 'text-emerald-400'} />
 
+      <div className="flex justify-between items-center text-xl my-1.5">
+        <span className="text-gray-400 font-medium">Wind</span>
+        <div className="flex items-center gap-2">
+          <span className="text-2xl leading-none transform transition-transform duration-1000" style={{ transform: `rotate(${Math.atan2(stats.windDirection?.y || 0, stats.windDirection?.x || 1) * (180 / Math.PI)}deg)` }}>
+            ➤
+          </span>
+          <span className="font-mono font-bold text-gray-300 text-xl">
+            {((stats.windSpeed || 0) * 100).toFixed(0)}km/h
+          </span>
+        </div>
+      </div>
+
       <div className="h-px bg-slate-700 my-1.5" />
 
       <StatusRow label="Unemployment" value={`${Math.round(stats.jobs.unemployment * 100)}%`} color={stats.jobs.unemployment < 0.1 ? 'text-green-400' : 'text-red-400'} />
@@ -132,7 +147,8 @@ const AiControlPanel = ({ status, onReset }: { status: string, onReset: () => vo
 const UIOverlay: React.FC<UIOverlayProps> = ({
   stats, selectedTool, onSelectTool, currentGoal, newsFeed, onClaimReward, isGeneratingGoal,
   onCycleTax, onTakeLoan, onRepayLoan, onBuyShares, onSellShares, onResetCity,
-  neonMode, onToggleNeon, weather, activeDisaster, onTriggerDisaster
+  neonMode, onToggleNeon, weather, activeDisaster, onTriggerDisaster,
+  aiEnabled, onToggleAi, historyLog
 }) => {
   const newsRef = useRef<HTMLDivElement>(null);
 
@@ -140,10 +156,65 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     if (newsRef.current) newsRef.current.scrollTop = newsRef.current.scrollHeight;
   }, [newsFeed]);
 
+  const [showHistory, setShowHistory] = useState(false);
+  const historyRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll history
+  useEffect(() => {
+    if (showHistory && historyRef.current) {
+      historyRef.current.scrollTop = historyRef.current.scrollHeight;
+    }
+  }, [showHistory, historyLog]); // Scroll when opened or log updates
+
   const aiStatus = isGeneratingGoal ? "AI is analyzing city state..." : (currentGoal ? `Focus: ${currentGoal.description.substring(0, 30)}...` : "Idle");
 
   return (
     <div className="absolute inset-0 pointer-events-none p-4 font-sans z-10 flex flex-col justify-between">
+
+      {/* --- CITY HISTORY MODAL --- */}
+      {showHistory && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/50 pointer-events-auto backdrop-blur-sm">
+          <div className="bg-slate-900 w-full max-w-2xl max-h-[80vh] rounded-3xl border-4 border-amber-600/50 shadow-2xl flex flex-col overflow-hidden animate-scale-in">
+            <div className="bg-amber-900/40 p-6 border-b border-amber-700/50 flex justify-between items-center">
+              <div>
+                <h2 className="text-3xl font-black uppercase tracking-widest text-amber-100 font-serif">City Chronicles</h2>
+                <p className="text-amber-300/60 font-mono text-sm uppercase tracking-wide">The history of your civilization</p>
+              </div>
+              <button onClick={() => setShowHistory(false)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-full transition-colors">
+                ❌
+              </button>
+            </div>
+            <div ref={historyRef} className="flex-1 overflow-y-auto p-8 space-y-6 font-serif bg-[url('/paper-texture.png')] bg-slate-900/90 relative">
+              {/* Decorative Line */}
+              <div className="absolute left-10 top-0 bottom-0 w-1 bg-amber-700/30"></div>
+
+              {historyLog.length === 0 && <div className="text-amber-500/50 italic text-center text-xl mt-10">History has not yet begun...</div>}
+
+              {[...historyLog].reverse().map((entry) => (
+                <div key={entry.id} className="relative pl-10 animate-fade-in-up">
+                  {/* Dot on timeline */}
+                  <div className={`absolute left-8 -translate-x-1/2 mt-1.5 w-4 h-4 rounded-full border-2 border-slate-900 shadow-xl
+                                ${entry.type === 'disaster' ? 'bg-red-500 box-shadow-red' :
+                      entry.type === 'major' ? 'bg-amber-400' :
+                        entry.type === 'milestone' ? 'bg-cyan-400' : 'bg-slate-500'}
+                            `}></div>
+
+                  <div className="flex flex-col">
+                    <span className={`font-mono text-xs font-bold uppercase tracking-widest mb-1
+                                    ${entry.type === 'disaster' ? 'text-red-400' : 'text-amber-500/70'}
+                                `}>Day {entry.day}</span>
+                    <span className={`text-xl leading-relaxed
+                                    ${entry.type === 'disaster' ? 'text-red-100 font-bold' :
+                        entry.type === 'major' ? 'text-amber-50 font-medium' :
+                          entry.type === 'milestone' ? 'text-cyan-100 font-medium italic' : 'text-slate-300'}
+                                `}>{entry.text}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Top Left: Panels */}
       <div className="flex flex-col gap-4 items-start pointer-events-auto">
@@ -217,9 +288,15 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
               <span className="text-sm font-mono font-bold text-white">{weather}</span>
             </div>
           </div>
+
         </div>
 
         <div className="flex flex-col gap-2 mt-2">
+          {/* Add History Toggle */}
+          <button onClick={() => setShowHistory(true)} className="w-full bg-amber-900/60 hover:bg-amber-800 text-amber-100 text-[10px] uppercase font-bold py-1 px-2 rounded border border-amber-700 backdrop-blur shadow-lg flex items-center justify-center gap-2">
+            <span>📜</span> View History
+          </button>
+
           <button onClick={onCycleTax} className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[10px] uppercase font-bold py-1 px-2 rounded border border-slate-600 backdrop-blur">
             Cycle Tax
           </button>
@@ -253,6 +330,28 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
         >
           {neonMode ? 'Neon Mode: ON' : 'Neon Mode: OFF'}
         </button>
+
+        {/* AI Mayor Toggle - Enhanced Design */}
+        <div className="mt-3 pt-3 border-t border-slate-700/50">
+          <button
+            onClick={onToggleAi}
+            className={`
+               w-full py-2 px-3 rounded-xl border-2 font-black uppercase tracking-widest text-xs transition-all duration-300 shadow-lg flex items-center justify-between group
+               ${aiEnabled
+                ? 'bg-gradient-to-r from-cyan-900/80 to-blue-900/80 border-cyan-400 text-cyan-100 shadow-[0_0_15px_rgba(34,211,238,0.4)]'
+                : 'bg-slate-800/80 border-slate-600 text-slate-400 hover:bg-slate-700 hover:border-slate-500'
+              }
+             `}
+          >
+            <span className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full transition-colors ${aiEnabled ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`}></span>
+              AI Mayor
+            </span>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${aiEnabled ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-700 text-slate-500'}`}>
+              {aiEnabled ? 'ACTIVE' : 'OFFLINE'}
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* Bottom: Tools Only (Feed Moved) */}

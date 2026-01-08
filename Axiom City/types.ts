@@ -73,6 +73,7 @@ export interface TileData {
   x: number;
   y: number;
   buildingType: BuildingType;
+  pollution: number; // 0-100, dynamic local pollution
 }
 
 export type Grid = TileData[][];
@@ -120,7 +121,9 @@ export interface CityStats {
   // New Stats
   crimeRate: number;
   security: number;
-  pollutionLevel: number;
+  pollutionLevel: number; // Global average or max?
+  windDirection: { x: number, y: number }; // Normalized vector
+  windSpeed: number; // 0-1 (calm to strom)
 
   currentGoal: AIGoal | null;
 }
@@ -138,6 +141,13 @@ export interface NewsItem {
   id: string;
   text: string;
   type: 'positive' | 'negative' | 'neutral';
+}
+
+export interface HistoryLogEntry {
+  id: string;
+  day: number;
+  text: string;
+  type: 'major' | 'minor' | 'disaster' | 'milestone';
 }
 
 // --- Events & Decisions ---

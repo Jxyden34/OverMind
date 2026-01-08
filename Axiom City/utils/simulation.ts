@@ -7,7 +7,7 @@ export const INITIAL_STATS: CityStats = {
     day: 1,
     taxRate: 0.1, // 10%
     happiness: 100,
-    education: 50,
+    education: 0,
     safety: 100,
     housingCapacity: 0,
     demographics: {
@@ -43,6 +43,8 @@ export const INITIAL_STATS: CityStats = {
     crimeRate: 0,
     security: 100,
     pollutionLevel: 0,
+    windDirection: { x: 1, y: 0 }, // Default East wind
+    windSpeed: 0.5,
     currentGoal: null
 };
 
@@ -118,7 +120,7 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     // 2. Population Dynamics (Aging)
 
     // Growth factors
-    const educationLevel = Math.min(100, 50 + (schools * 10)); // Base 50 + 10 per school
+    const educationLevel = Math.min(100, schools * 15); // 0 base + 15 per school
     // Safety heavily impacted by Crime Rate now
     const safetyLevel = Math.max(0, 100 - newStats.crimeRate * 2);
 
@@ -275,10 +277,29 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     // Parks help, but Pollution hurts
     baseHappiness += Math.min(20, parks * 2);
 
-    // Pollution Penalty
-    // If pollution > 20, -1 happiness per point
+    // Pollution Penalty (Local & Global)
+    // 1. Global Smog Penalty
     if (newStats.pollutionLevel > 20) {
         baseHappiness -= (newStats.pollutionLevel - 20);
+    }
+
+    // 2. Local Residential Pollution Penalty
+    // Calculate average pollution specifically on residential tiles
+    let totalResPollution = 0;
+    let resCount = 0;
+    grid.forEach(row => row.forEach(tile => {
+        if (tile.buildingType === BuildingType.Residential || tile.buildingType === BuildingType.Apartment || tile.buildingType === BuildingType.Mansion) {
+            totalResPollution += (tile.pollution || 0);
+            resCount++;
+        }
+    }));
+
+    if (resCount > 0) {
+        const avgResPollution = totalResPollution / resCount;
+        // If people are breathing smog, they are VERY unhappy
+        if (avgResPollution > 10) {
+            baseHappiness -= avgResPollution * 2; // Heavy penalty
+        }
     }
 
     // Unemployment penalty is mitigated by Shadow Economy (people survive)
@@ -302,4 +323,97 @@ export const updateSimulation = (currentStats: CityStats, grid: Grid): CityStats
     newStats.happiness = Math.max(0, Math.min(100, Math.floor(baseHappiness)));
 
     return newStats;
+};
+
+// --- DYNAMIC POLLUTION SIMULATION ---
+
+export const simulateEnvironment = (grid: Grid, stats: CityStats): { newGrid: Grid, windUpdate: Partial<CityStats> } => {
+    // 1. Wind Simulation
+    // Random walk for wind direction
+    let wind = { ...stats.windDirection };
+    let speed = stats.windSpeed;
+
+    // 5% chance to change wind
+    if (Math.random() < 0.05) {
+        // Rotate vector slightly
+        const angle = Math.atan2(wind.y, wind.x);
+        const newAngle = angle + (Math.random() * 1.0 - 0.5); // +/- 0.5 radians
+        wind.x = Math.cos(newAngle);
+        wind.y = Math.sin(newAngle);
+
+        // Vary speed
+        speed = Math.min(1.0, Math.max(0.1, speed + (Math.random() * 0.2 - 0.1)));
+    }
+
+    // 2. Pollution Step
+    // Deep copy grid structure to avoid mutating state directly
+    const newGrid = grid.map(row => row.map(tile => ({ ...tile })));
+
+    let totalPollution = 0;
+    let pollutedTiles = 0;
+
+    const GRID_H = grid.length;
+    const GRID_W = grid[0].length;
+
+    for (let y = 0; y < GRID_H; y++) {
+        for (let x = 0; x < GRID_W; x++) {
+            const tile = newGrid[y][x];
+            const config = BUILDINGS[tile.buildingType];
+
+            // A. Generation
+            if (config && config.pollution) {
+                // Add pollution Source
+                tile.pollution = Math.min(100, (tile.pollution || 0) + config.pollution * 2);
+            }
+
+            // B. Decay (Natural dissipation)
+            let decay = 0.90; // Retain 90% per tick (10% decay)
+            if (tile.buildingType === BuildingType.Park) decay = 0.70; // Parks clean air
+            if (tile.buildingType === BuildingType.Water) decay = 0.95; // Water traps it a bit
+
+            tile.pollution = (tile.pollution || 0) * decay;
+
+            // C. Advection (Movement)
+            // Push some pollution to neighbor based on wind
+            if (tile.pollution > 1) {
+                const moveAmount = tile.pollution * 0.3 * speed; // Move 30% * speed
+
+                const targetX = x + wind.x;
+                const targetY = y + wind.y;
+
+                // Simple nearest neighbor distribution
+                const tx = Math.round(targetX);
+                const ty = Math.round(targetY);
+
+                if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
+                    newGrid[ty][tx].pollution = (newGrid[ty][tx].pollution || 0) + moveAmount;
+                    tile.pollution -= moveAmount;
+                } else {
+                    // Blown off map
+                    tile.pollution -= moveAmount;
+                }
+            }
+
+            // Validation
+            if (tile.pollution < 0.5) tile.pollution = 0;
+
+            // Stats
+            if (tile.pollution > 0) {
+                totalPollution += tile.pollution;
+                pollutedTiles++;
+            }
+        }
+    }
+
+    // Calc Average Pollution for Global Stats (0-100 scale)
+    const avgPollution = pollutedTiles > 0 ? totalPollution / (GRID_W * GRID_H) : 0;
+
+    return {
+        newGrid,
+        windUpdate: {
+            windDirection: wind,
+            windSpeed: speed,
+            pollutionLevel: Math.min(100, Math.floor(avgPollution * 5))
+        }
+    };
 };

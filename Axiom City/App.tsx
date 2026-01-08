@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Grid, TileData, BuildingType, CityStats, AIGoal, NewsItem, AIAction, EconomicEvent, WeatherType, DisasterType, ActiveDisaster } from './types';
+import { Grid, TileData, BuildingType, CityStats, AIGoal, NewsItem, AIAction, EconomicEvent, WeatherType, DisasterType, ActiveDisaster, HistoryLogEntry } from './types';
 import { GRID_SIZE, BUILDINGS, TICK_RATE_MS } from './constants';
 import IsoMap from './components/IsoMap';
 import UIOverlay from './components/UIOverlay';
 import StartScreen from './components/StartScreen';
-import { updateSimulation, INITIAL_STATS } from './utils/simulation';
+import { updateSimulation, INITIAL_STATS, simulateEnvironment } from './utils/simulation';
 import { generateGameAction, generateCityGoal, generateNewsEvent, generateWeirdEvent, decideEvent, AIEventResponse } from './services/localAiService';
 import EventModal from './components/EventModal';
 
@@ -34,7 +34,8 @@ const createInitialGrid = (): Grid => {
       row.push({
         x,
         y,
-        buildingType: isWater ? BuildingType.Water : BuildingType.None
+        buildingType: isWater ? BuildingType.Water : BuildingType.None,
+        pollution: 0
       });
     }
     grid.push(row);
@@ -61,6 +62,61 @@ function App() {
   // Local AI State
   const [lastAIAction, setLastAIAction] = useState<AIAction | null>(null);
   const [aiFailures, setAiFailures] = useState<string[]>([]);
+
+  // City History Log
+  const [historyLog, setHistoryLog] = useState<HistoryLogEntry[]>([]);
+
+  const addToHistory = useCallback((text: string, type: 'major' | 'minor' | 'disaster' | 'milestone' = 'major') => {
+    setHistoryLog(prev => [
+      { id: Date.now().toString() + Math.random(), day: statsRef.current.day, text, type },
+      ...prev
+    ]);
+  }, []);
+
+  // --- Event Listeners for History ---
+  // 1. Disaster Logging
+  useEffect(() => {
+    if (activeDisaster) {
+      const typeName = activeDisaster.type === DisasterType.Meteor ? "Meteor Strike" :
+        activeDisaster.type === DisasterType.AlienInvasion ? "Alien Invasion" :
+          activeDisaster.type === DisasterType.SolarFlare ? "Solar Flare" : "Disaster";
+      addToHistory(`${typeName} Detected!`, 'disaster');
+    }
+  }, [activeDisaster, addToHistory]);
+
+  // 2. Economic Event Logging
+  // We need to track the previous event to detect changes
+  const prevEventRef = useRef<EconomicEvent>(EconomicEvent.None);
+  useEffect(() => {
+    if (stats.activeEvent !== prevEventRef.current) {
+      if (stats.activeEvent !== EconomicEvent.None) {
+        let msg = "";
+        switch (stats.activeEvent) {
+          case EconomicEvent.Boom: msg = "Economic Boom!"; break;
+          case EconomicEvent.Recession: msg = "Market Recession"; break;
+          case EconomicEvent.Strike: msg = "Labor Strike"; break;
+          case EconomicEvent.Audit: msg = "Federal Audit"; break;
+        }
+        addToHistory(msg, 'major');
+      } else {
+        // Event ended
+        // addToHistory("Economic conditions stabilized.", 'minor');
+      }
+      prevEventRef.current = stats.activeEvent;
+    }
+  }, [stats.activeEvent, addToHistory]);
+
+  // 3. Milestone Logging (Population)
+  const prevPopRef = useRef(0);
+  useEffect(() => {
+    const p = stats.population;
+    const pp = prevPopRef.current;
+    if (p >= 100 && pp < 100) addToHistory("Village Established (Pop 100)", 'milestone');
+    if (p >= 500 && pp < 500) addToHistory("Township Status (Pop 500)", 'milestone');
+    if (p >= 1000 && pp < 1000) addToHistory("City Charter Granted (Pop 1000)", 'milestone');
+    if (p >= 5000 && pp < 5000) addToHistory("Metropolis Status (Pop 5000)", 'milestone');
+    prevPopRef.current = p;
+  }, [stats.population, addToHistory]);
 
   // Refs for accessing state inside intervals without dependencies
   const gridRef = useRef(grid);
@@ -304,15 +360,28 @@ function App() {
 
     const intervalId = setInterval(() => {
       // Use advanced simulation logic
+      // 1. Run Dynamic Environment (Wind/Pollution)
+      const { newGrid, windUpdate } = simulateEnvironment(gridRef.current, statsRef.current);
+
+      // Update Grid immediately (visuals)
+      setGrid(newGrid);
+      // Sync ref manually since state update is async and we need it for updateSimulation right below? 
+      // Actually updateSimulation takes explicit grid argument, so we pass newGrid.
+      gridRef.current = newGrid;
+
       setStats(prev => {
-        const newStats = updateSimulation(prev, gridRef.current);
+        // Apply wind/env stats first
+        const intermediateStats = { ...prev, ...windUpdate };
+
+        // 2. Run City Simulation (Economy/Happiness) using NEW grid
+        const newStats = updateSimulation(intermediateStats, newGrid);
 
         // Check Goal Completion
         const goal = goalRef.current;
         if (aiEnabledRef.current && goal && !goal.completed) {
           // Count buildings
           const counts: Record<string, number> = {};
-          gridRef.current.flat().forEach(t => counts[t.buildingType] = (counts[t.buildingType] || 0) + 1);
+          newGrid.flat().forEach(t => counts[t.buildingType] = (counts[t.buildingType] || 0) + 1);
 
           let isMet = false;
           if (goal.targetType === 'money' && newStats.money >= goal.targetValue) isMet = true;
@@ -444,11 +513,13 @@ function App() {
 
   // --- Persistence Cleanup (FORCE RESET) ---
   // User demanded no saving and fresh random maps on reload.
+  // --- Persistence Cleanup (Removed to allow saving) ---
+  /*
   useEffect(() => {
     console.log("🧹 FORCE CLEARING LOCAL STORAGE");
     localStorage.clear();
-    // This ensures that even if I accidentally left something behind, it's gone.
   }, []);
+  */
 
 
   // --- Interaction Logic ---
@@ -610,6 +681,7 @@ function App() {
         activeDisaster={activeDisaster}
         crimeRate={stats.crimeRate}
         pollutionLevel={stats.pollutionLevel}
+        windDirection={stats.windDirection}
       />
 
       {/* Start Screen Overlay */}
@@ -647,6 +719,9 @@ function App() {
           weather={weather}
           activeDisaster={activeDisaster}
           onTriggerDisaster={() => triggerDisaster()}
+          aiEnabled={aiEnabled}
+          onToggleAi={() => setAiEnabled(!aiEnabled)}
+          historyLog={historyLog}
         />
       )}
 

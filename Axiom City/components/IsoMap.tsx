@@ -765,6 +765,74 @@ const Bird = ({ position, speed, offset }: { position: [number, number, number],
   )
 }
 
+const PollutionSystem = ({ grid, windDirection }: { grid: Grid, windDirection: { x: number, y: number } }) => {
+  const pollutedTiles = useMemo(() => {
+    const tiles: { x: number, y: number, amount: number }[] = [];
+    grid.forEach(row => row.forEach(tile => {
+      if ((tile.pollution || 0) > 5) {
+        tiles.push({ x: tile.x, y: tile.y, amount: tile.pollution });
+      }
+    }));
+    return tiles;
+  }, [grid]);
+
+  const count = pollutedTiles.length;
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+
+  useFrame((state) => {
+    if (!meshRef.current || count === 0) return;
+    const time = state.clock.elapsedTime;
+
+    // Animate clouds
+    pollutedTiles.forEach((tile, i) => {
+      const [wx, _, wz] = gridToWorld(tile.x, tile.y);
+
+      // Visual drift offset (looping to look like flow)
+      const driftX = (Math.sin(time * 0.5 + tile.y) * 0.1) + windDirection.x * 0.1 * Math.sin(time);
+      const driftZ = (Math.cos(time * 0.5 + tile.x) * 0.1) + windDirection.y * 0.1 * Math.sin(time);
+
+      // Height varies with amount
+      const h = 0.5 + (tile.amount / 100) * 1.5;
+
+      dummy.position.set(wx + driftX, h, wz + driftZ);
+
+      // Scale pulse
+      const scale = (0.5 + (tile.amount / 100)) * (0.8 + Math.sin(time * 2 + i) * 0.2);
+      dummy.scale.set(scale, scale * 0.6, scale);
+
+      // Rotation (tumbling smog)
+      dummy.rotation.set(time * 0.2, time * 0.1, 0);
+
+      dummy.updateMatrix();
+      meshRef.current.setMatrixAt(i, dummy.matrix);
+
+      // Color adjustment (darker for heavy pollution)
+      const darken = 1 - Math.min(1, tile.amount / 150);
+      const color = new THREE.Color().setHSL(0.15, 0.1, 0.4 * darken);
+      meshRef.current.setColorAt(i, color);
+    });
+
+    meshRef.current.instanceMatrix.needsUpdate = true;
+    if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
+  });
+
+  if (count === 0) return null;
+
+  return (
+    <instancedMesh ref={meshRef} args={[sphereGeo, undefined, count]} frustumCulled={false}>
+      <meshStandardMaterial
+        color="#4b5563"
+        transparent
+        opacity={0.6}
+        roughness={1}
+        depthWrite={false}
+      />
+    </instancedMesh>
+  );
+};
+
+
 const boatColors = ['#f8fafc', '#e2e8f0', '#94a3b8']; // White/Grey hulls
 
 const BoatSystem = ({ grid }: { grid: Grid }) => {
@@ -911,38 +979,7 @@ const BoatSystem = ({ grid }: { grid: Grid }) => {
   );
 };
 
-const PollutionSystem = ({ grid, pollutionLevel }: { grid: Grid, pollutionLevel: number }) => {
-  // Determine polluted tiles
-  const pollutedTiles = useMemo(() => {
-    const tiles: { x: number, y: number }[] = [];
-    if (pollutionLevel <= 0) return tiles;
 
-    grid.forEach(row => row.forEach(tile => {
-      const config = BUILDINGS[tile.buildingType];
-      if ((config && config.pollution && config.pollution > 0) || tile.buildingType === BuildingType.Industrial) {
-        tiles.push({ x: tile.x, y: tile.y });
-      }
-    }));
-    return tiles;
-  }, [grid, pollutionLevel]);
-
-  if (pollutionLevel < 5 || pollutedTiles.length === 0) return null;
-
-  return (
-    <group>
-      {pollutedTiles.map((t, i) => {
-        const [wx, _, wz] = gridToWorld(t.x, t.y);
-        // Render a few clouds per tile
-        return (
-          <group key={`${t.x}-${t.y}`} position={[wx, 1.5, wz]}>
-            <Cloud position={[0, 0, 0]} scale={0.8} speed={0.2} />
-            <Cloud position={[0.5, 0.5, 0.5]} scale={0.5} speed={0.3} />
-          </group>
-        );
-      })}
-    </group>
-  );
-};
 
 // --- Disaster Visuals ---
 const MeteorVisual = ({ position, progress }: { position: { x: number, y: number }, progress: number }) => {
@@ -1256,9 +1293,10 @@ interface IsoMapProps {
   activeDisaster: ActiveDisaster | null;
   crimeRate: number;
   pollutionLevel: number;
+  windDirection?: { x: number, y: number };
 }
 
-const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, population, day = 1, neonMode = false, weather, activeDisaster, crimeRate, pollutionLevel }) => {
+const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, population, day = 1, neonMode = false, weather, activeDisaster, crimeRate, pollutionLevel, windDirection }) => {
   const [hoveredTile, setHoveredTile] = useState<{ x: number, y: number } | null>(null);
   const handleHover = useCallback((x: number, y: number) => { setHoveredTile({ x, y }); }, []);
   const handleLeave = useCallback(() => { setHoveredTile(null); }, []);
@@ -1330,7 +1368,7 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, populat
           <DisasterManager activeDisaster={activeDisaster} />
           <TrafficSystem grid={grid} crimeRate={crimeRate} />
           <BoatSystem grid={grid} />
-          <PollutionSystem grid={grid} pollutionLevel={pollutionLevel} />
+          <PollutionSystem grid={grid} windDirection={windDirection || { x: 1, y: 0 }} />
           <PopulationSystem population={population} grid={grid} />
           {showPreview && hoveredTile && (
             <group position={[previewPos[0], 0, previewPos[2]]}>
